@@ -1,0 +1,248 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/auth";
+import type { Transaction } from "../types";
+
+type ReviewItem = {
+  id: string;
+  transaction_id: string;
+  name: string;
+  category: string | null;
+  quantity: number;
+  unit_price: number;
+  item_total: number;
+  created_at: string;
+};
+
+type ReviewTransaction = Omit<Transaction, "transaction_items"> & {
+  transaction_items: ReviewItem[];
+  receipts?: { status: string }[];
+};
+
+async function fetchReviewTransactions() {
+  const { data, error } = await supabase
+    .from("transactions")
+    .select("*, transaction_items(*), receipts(status)")
+    .eq("is_reviewed", false)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data as ReviewTransaction[];
+}
+
+export function ReviewQueue() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const query = useQuery({
+    queryKey: ["review-transactions", user?.id],
+    queryFn: fetchReviewTransactions,
+    enabled: Boolean(user),
+  });
+
+  const transactions = useMemo(() => {
+    if (!query.data) return [];
+    return query.data;
+  }, [query.data]);
+
+  const handleApprove = async (transaction: ReviewTransaction) => {
+    const items = transaction.transaction_items ?? [];
+
+    const toleranceErrors = items
+      .filter((item) => {
+        const calculated = item.quantity * item.unit_price;
+        const actual = item.item_total;
+        const tolerance = Math.abs(actual) * 0.01;
+        return Math.abs(calculated - actual) > tolerance;
+      })
+      .map(
+        (item) =>
+          `"${item.name}": calculated ${(item.quantity * item.unit_price).toFixed(2)} but total is ${item.item_total.toFixed(2)}`,
+      );
+
+    if (toleranceErrors.length > 0) {
+      window.alert(
+        `Math errors detected (outside 1% tolerance):\n${toleranceErrors.join("\n")}\n\nEdit the items to fix the discrepancies before approving.`,
+      );
+      return;
+    }
+
+    const subtotal = items.reduce((sum, item) => sum + item.item_total, 0);
+
+    const [transactionResult, receiptResult] = await Promise.all([
+      supabase
+        .from("transactions")
+        .update({ total_amount: subtotal, is_reviewed: true })
+        .eq("id", transaction.id),
+      transaction.receipt_id
+        ? supabase
+            .from("receipts")
+            .update({ status: "completed" })
+            .eq("id", transaction.receipt_id)
+        : Promise.resolve({ error: null }),
+    ]);
+
+    if (transactionResult.error || receiptResult.error) {
+      window.alert("Failed to approve transaction. Please try again.");
+      return;
+    }
+
+    query.refetch();
+  };
+
+  if (query.isLoading) {
+    return (
+      <main className="page">
+        <p>Loading review queue…</p>
+      </main>
+    );
+  }
+
+  if (query.isError) {
+    return (
+      <main className="page">
+        <div className="alert">{String(query.error)}</div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="page">
+      <div className="page__header">
+        <div>
+          <p className="eyebrow">Human review</p>
+          <h1>AI-reviewed transactions</h1>
+          <p>
+            Tap an item to edit it, then approve the transaction once everything
+            looks right.
+          </p>
+        </div>
+      </div>
+
+      <div className="content-block">
+        {!transactions.length && <p>No transactions need review right now.</p>}
+
+        {transactions.map((transaction) => {
+          const receiptStatus = transaction.receipts?.[0]?.status;
+          const items = transaction.transaction_items ?? [];
+
+          if (receiptStatus === "pending" || receiptStatus === "processing") {
+            return (
+              <article key={transaction.id} className="ticket-card">
+                <div className="ticket-card__header">
+                  <div>
+                    <strong>AI is analyzing receipt…</strong>
+                    <span>Processing</span>
+                  </div>
+                </div>
+                <div className="skeleton-loader">
+                  <div className="skeleton-line"></div>
+                  <div className="skeleton-line short"></div>
+                  <div className="skeleton-line"></div>
+                </div>
+              </article>
+            );
+          }
+
+          const subtotal = items.reduce(
+            (sum, item) => sum + (item.item_total ?? 0),
+            0,
+          );
+
+          return (
+            <article key={transaction.id} className="ticket-card">
+              <div className="ticket-card__header">
+                <div>
+                  <strong>
+                    {transaction.vendor_or_source ?? "Unknown source"}
+                  </strong>
+                  <span>{transaction.date ?? "No date"}</span>
+                </div>
+                <div>
+                  <span>{transaction.type.toUpperCase()}</span>
+                  <strong>
+                    ${transaction.total_amount?.toFixed(2) ?? "0.00"}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="ticket-card__products">
+                {items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="item-row-btn"
+                    onClick={() =>
+                      navigate(
+                        `/review/${transaction.id}/items/${item.id}`,
+                      )
+                    }
+                  >
+                    <div className="item-row-btn__left">
+                      <span className="item-row-btn__name">{item.name || "Unnamed item"}</span>
+                      {item.category && (
+                        <span className="item-row-btn__category">
+                          {item.category}
+                        </span>
+                      )}
+                    </div>
+                    <div className="item-row-btn__right">
+                      <span className="item-row-btn__math">
+                        {item.quantity} × ${item.unit_price?.toFixed(2)}
+                      </span>
+                      <strong className="item-row-btn__total">
+                        ${item.item_total?.toFixed(2)}
+                      </strong>
+                      <span className="item-row-btn__chevron">›</span>
+                    </div>
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  className="add-item-btn"
+                  onClick={() =>
+                    navigate(`/review/${transaction.id}/items/new`)
+                  }
+                >
+                  + Add item
+                </button>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 16,
+                  paddingTop: 16,
+                  borderTop: "1px solid rgba(0,217,255,0.1)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 16,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                    Subtotal
+                  </p>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: "1.2rem" }}>
+                    ${subtotal.toFixed(2)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => handleApprove(transaction)}
+                >
+                  Approve
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </main>
+  );
+}

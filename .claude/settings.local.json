@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /Users/pedro/.claude/projects/-Users-pedro-Documents-expense-tracker/memory/)",
+      "Bash(pnpm tsc *)",
+      "Bash(pnpm dlx *)",
+      "Bash(pnpm exec *)",
+      "Bash(pnpm supabase *)"
+    ],
+    "additionalDirectories": [
+      "/Users/pedro/.claude/projects/-Users-pedro-Documents-expense-tracker/memory"
+    ]
+  }
+}
