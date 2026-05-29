@@ -186,6 +186,7 @@ export function GroupManager() {
                   <button
                     type="button"
                     className="button"
+                    style={{ marginTop: 16 }}
                     onClick={() => setSelectedGroupId(group.id)}
                   >
                     Invite Member

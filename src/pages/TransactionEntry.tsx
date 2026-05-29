@@ -402,18 +402,19 @@ export function TransactionEntry() {
                       <ul
                         style={{
                           position: "absolute",
-                          top: "100%",
+                          top: "calc(100% + 4px)",
                           left: 0,
                           right: 0,
-                          backgroundColor: "#fff",
-                          border: "1px solid #ccc",
-                          borderRadius: "4px",
+                          background: "var(--bg-card)",
+                          border: "1px solid var(--border-strong)",
+                          borderRadius: "8px",
                           listStyle: "none",
                           padding: "4px 0",
-                          margin: "4px 0 0 0",
-                          maxHeight: "150px",
+                          margin: 0,
+                          maxHeight: "160px",
                           overflowY: "auto",
                           zIndex: 10,
+                          boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
                         }}
                       >
                         {productSuggestions.map((suggestion, idx) => (
@@ -423,13 +424,15 @@ export function TransactionEntry() {
                             style={{
                               padding: "8px 12px",
                               cursor: "pointer",
-                              backgroundColor:
+                              fontSize: "0.88rem",
+                              color: "var(--text-primary)",
+                              background:
                                 idx === activeSuggestionIndex
-                                  ? "#f0f0f0"
-                                  : "#fff",
+                                  ? "var(--bg-secondary)"
+                                  : "transparent",
                               borderBottom:
                                 idx < productSuggestions.length - 1
-                                  ? "1px solid #f0f0f0"
+                                  ? "1px solid var(--border-color)"
                                   : "none",
                             }}
                           >
@@ -486,18 +489,20 @@ export function TransactionEntry() {
                 />
                 <div
                   style={{
-                    padding: "8px",
-                    backgroundColor: "#f5f5f5",
-                    borderRadius: "4px",
-                    textAlign: "center",
-                    fontWeight: "bold",
+                    padding: "9px 10px",
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: "8px",
+                    textAlign: "right",
+                    fontWeight: 600,
+                    fontSize: "0.9rem",
+                    color: "var(--text-primary)",
                     minWidth: "80px",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {currency}{" "}
-                  {calculateItemTotal(item.quantity, item.unit_price).toFixed(
-                    2,
-                  )}
+                  {calculateItemTotal(item.quantity, item.unit_price).toFixed(2)}
                 </div>
 
                 {items.length > 1 && (
@@ -526,9 +531,7 @@ export function TransactionEntry() {
           </div>
 
           {validationError && (
-            <p className="status-message" style={{ color: "red" }}>
-              {validationError}
-            </p>
+            <div className="alert">{validationError}</div>
           )}
 
           {message && <p className="status-message">{message}</p>}

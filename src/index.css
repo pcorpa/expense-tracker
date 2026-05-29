@@ -12,16 +12,15 @@
     "cv03" 1,
     "cv04" 1,
     "cv11" 1;
-  background: #0a0f1f;
-  color: #f1f5f9;
+  background: #0d1117;
+  color: #f0f6fc;
 
-  /* Color palette */
-  --color-primary-dark: #0a0f1f;
-  --color-primary: #0f172a;
-  --color-primary-light: #1e293b;
-  --color-accent: #00d9ff;
-  --color-accent-secondary: #6366f1;
-  --color-accent-light: #0af;
+  --color-primary-dark: #0d1117;
+  --color-primary: #161b22;
+  --color-primary-light: #1c2128;
+  --color-accent: #3b82f6;
+  --color-accent-secondary: #818cf8;
+  --color-accent-light: #60a5fa;
 }
 
 * {
@@ -32,7 +31,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: #0a0f1f;
+  background: #0d1117;
 }
 
 button,

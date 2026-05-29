@@ -59,7 +59,7 @@ export function SignIn() {
           Continue with Google
         </button>
         <div className="separator">or</div>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <label>
             Email
             <input
@@ -86,7 +86,7 @@ export function SignIn() {
           </button>
         </form>
 
-        <p className="small-text">
+        <p className="small-text" style={{ marginTop: 16 }}>
           New here? <Link to="/signup">Create account</Link>
         </p>
       </div>

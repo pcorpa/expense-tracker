@@ -234,7 +234,7 @@ export function ReviewQueue() {
                   <span>{transaction.date ?? "No date"}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ textAlign: "right" }}>
+                  <div style={{ textAlign: "right", display: "flex", flexDirection: "column", gap: 2 }}>
                     <span>{transaction.type.toUpperCase()}</span>
                     <strong>
                       ${transaction.total_amount?.toFixed(2) ?? "0.00"}
@@ -330,6 +330,7 @@ export function ReviewQueue() {
             <h2 style={{ marginTop: 32, fontSize: "1rem", color: "var(--text-muted)" }}>
               Failed — AI could not process
             </h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {failedQuery.data.map((receipt) => (
               <article key={receipt.id} className="ticket-card">
                 <div className="ticket-card__header">
@@ -391,6 +392,7 @@ export function ReviewQueue() {
                 )}
               </article>
             ))}
+            </div>
           </>
         )}
       </div>
