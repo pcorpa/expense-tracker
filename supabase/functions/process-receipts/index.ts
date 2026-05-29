@@ -237,10 +237,17 @@ Reglas:
     console.log('[4/5] DONE insert transaction + items. transaction_id:', transactionData.id);
 
     console.log('[5/5] START update receipt status → needs_review');
-    await supabase
+    const { error: receiptUpdateError } = await supabase
       .from('receipts')
       .update({ status: 'needs_review', raw_ocr_json: extractedData, city })
       .eq('id', receiptId);
+    if (receiptUpdateError) {
+      console.error('[5/5] FAILED update receipt status:', receiptUpdateError.message);
+      return new Response(JSON.stringify({ error: receiptUpdateError.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+      });
+    }
     console.log('[5/5] DONE update receipt status → needs_review');
 
     return new Response(

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import type { Transaction } from "../types";
@@ -24,8 +25,15 @@ type ReviewTransaction = Omit<Transaction, "transaction_items"> & {
 type FailedReceipt = {
   id: string;
   created_at: string;
-  city: string | null;
+  status: string;
+  image_url: string;
 };
+
+function receiptFileName(imageUrl: string): string {
+  const base = imageUrl.split("/").pop() ?? imageUrl;
+  // storage path is `userId/timestamp_originalname` — strip the timestamp prefix
+  return base.replace(/^\d+_/, "");
+}
 
 async function fetchReviewTransactions() {
   const { data, error } = await supabase
@@ -41,18 +49,22 @@ async function fetchReviewTransactions() {
 async function fetchFailedReceipts() {
   const { data, error } = await supabase
     .from("receipts")
-    .select("id, created_at, city")
-    .in("status", ["error", "pending"])
+    .select("id, created_at, status, image_url")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data as FailedReceipt[];
+  return (data as FailedReceipt[]).filter(
+    (r) => r.status === "error" || r.status === "pending",
+  );
 }
 
 export function ReviewQueue() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [approving, setApproving] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ["review-transactions", user?.id],
@@ -85,6 +97,18 @@ export function ReviewQueue() {
     query.refetch();
   };
 
+  const handleDelete = async (receiptId: string) => {
+    setDeleting(receiptId);
+    setConfirmDelete(null);
+    const { error } = await supabase.from("receipts").delete().eq("id", receiptId);
+    setDeleting(null);
+    if (error) {
+      window.alert(`Delete failed: ${error.message}`);
+      return;
+    }
+    failedQuery.refetch();
+  };
+
   const handleApprove = async (transaction: ReviewTransaction) => {
     const items = transaction.transaction_items ?? [];
 
@@ -107,23 +131,32 @@ export function ReviewQueue() {
       return;
     }
 
+    setApproving(transaction.id);
     const subtotal = items.reduce((sum, item) => sum + item.item_total, 0);
 
     const [transactionResult, receiptResult] = await Promise.all([
       supabase
         .from("transactions")
         .update({ total_amount: subtotal, is_reviewed: true })
-        .eq("id", transaction.id),
+        .eq("id", transaction.id)
+        .select("id"),
       transaction.receipt_id
         ? supabase
             .from("receipts")
             .update({ status: "completed" })
             .eq("id", transaction.receipt_id)
-        : Promise.resolve({ error: null }),
+        : Promise.resolve({ data: null, error: null }),
     ]);
+
+    setApproving(null);
 
     if (transactionResult.error || receiptResult.error) {
       window.alert("Failed to approve transaction. Please try again.");
+      return;
+    }
+
+    if (!transactionResult.data || transactionResult.data.length === 0) {
+      window.alert("Could not approve — the transaction was not updated. Check that you have permission.");
       return;
     }
 
@@ -200,11 +233,20 @@ export function ReviewQueue() {
                   </strong>
                   <span>{transaction.date ?? "No date"}</span>
                 </div>
-                <div>
-                  <span>{transaction.type.toUpperCase()}</span>
-                  <strong>
-                    ${transaction.total_amount?.toFixed(2) ?? "0.00"}
-                  </strong>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ textAlign: "right" }}>
+                    <span>{transaction.type.toUpperCase()}</span>
+                    <strong>
+                      ${transaction.total_amount?.toFixed(2) ?? "0.00"}
+                    </strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="button button--secondary button--small"
+                    onClick={() => navigate(`/review/${transaction.id}/edit`)}
+                  >
+                    Edit
+                  </button>
                 </div>
               </div>
 
@@ -255,7 +297,7 @@ export function ReviewQueue() {
                 style={{
                   marginTop: 16,
                   paddingTop: 16,
-                  borderTop: "1px solid rgba(0,217,255,0.1)",
+                  borderTop: "1px solid var(--border-color)",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
@@ -275,8 +317,9 @@ export function ReviewQueue() {
                   type="button"
                   className="button"
                   onClick={() => handleApprove(transaction)}
+                  disabled={approving === transaction.id}
                 >
-                  Approve
+                  {approving === transaction.id ? "Approving…" : "Approve"}
                 </button>
               </div>
             </article>
@@ -291,18 +334,61 @@ export function ReviewQueue() {
               <article key={receipt.id} className="ticket-card">
                 <div className="ticket-card__header">
                   <div>
-                    <strong>Receipt processing failed</strong>
+                    <strong>{receiptFileName(receipt.image_url)}</strong>
                     <span>{new Date(receipt.created_at).toLocaleDateString()}</span>
                   </div>
-                  <button
-                    type="button"
-                    className="button button--secondary button--small"
-                    onClick={() => handleRetry(receipt.id)}
-                    disabled={retrying === receipt.id}
-                  >
-                    {retrying === receipt.id ? "Retrying…" : "Retry AI"}
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      className="button button--secondary button--small"
+                      onClick={() => handleRetry(receipt.id)}
+                      disabled={retrying === receipt.id || deleting === receipt.id || confirmDelete === receipt.id}
+                    >
+                      {retrying === receipt.id ? "Retrying…" : "Retry AI"}
+                    </button>
+                    <button
+                      type="button"
+                      className="button button--secondary button--small"
+                      onClick={() => setConfirmDelete(receipt.id)}
+                      disabled={deleting === receipt.id || retrying === receipt.id}
+                      aria-label="Delete failed receipt"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
+                {confirmDelete === receipt.id && (
+                  <div style={{
+                    marginTop: 12,
+                    paddingTop: 12,
+                    borderTop: "1px solid var(--border-color)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}>
+                    <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-muted)" }}>
+                      Delete this failed receipt? This cannot be undone.
+                    </p>
+                    <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        className="button button--secondary button--small"
+                        onClick={() => setConfirmDelete(null)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="button button--small"
+                        onClick={() => handleDelete(receipt.id)}
+                        disabled={deleting === receipt.id}
+                      >
+                        {deleting === receipt.id ? "Deleting…" : "Delete"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </article>
             ))}
           </>

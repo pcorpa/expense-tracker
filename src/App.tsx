@@ -13,6 +13,7 @@ import { UploadReceipt } from "./pages/UploadReceipt";
 import { ExpenseList } from "./pages/ExpenseList";
 import { ReviewQueue } from "./pages/ReviewQueue";
 import { ReviewItemEdit } from "./pages/ReviewItemEdit";
+import { ReviewTransactionEdit } from "./pages/ReviewTransactionEdit";
 import { Profile } from "./pages/Profile";
 import { TransactionEntry } from "./pages/TransactionEntry";
 import { GroupManager } from "./pages/GroupManager";
@@ -84,6 +85,14 @@ function AppShell() {
             element={
               <ProtectedRoute>
                 <ReviewItemEdit />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/review/:transactionId/edit"
+            element={
+              <ProtectedRoute>
+                <ReviewTransactionEdit />
               </ProtectedRoute>
             }
           />

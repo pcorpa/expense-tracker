@@ -93,7 +93,15 @@ export function ReviewItemEdit() {
     total !== 0;
 
   function field(key: keyof FormState, value: string) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "quantity" || key === "unit_price") {
+        const qty = Number(key === "quantity" ? value : prev.quantity) || 0;
+        const price = Number(key === "unit_price" ? value : prev.unit_price) || 0;
+        next.item_total = (qty * price).toFixed(2);
+      }
+      return next;
+    });
   }
 
   const handleSave = async () => {
@@ -124,7 +132,7 @@ export function ReviewItemEdit() {
     navigate("/review");
   };
 
-  const isLoading = !initialized && itemQuery.isLoading;
+  const isLoading = !initialized && !itemQuery.isError && itemQuery.isLoading;
 
   return (
     <main className="page">
@@ -149,6 +157,12 @@ export function ReviewItemEdit() {
       {isLoading ? (
         <div className="content-block">
           <p>Loading item…</p>
+        </div>
+      ) : itemQuery.isError ? (
+        <div className="content-block">
+          <div className="alert">
+            Failed to load item: {String(itemQuery.error)}
+          </div>
         </div>
       ) : (
         <div className="content-block">
@@ -235,7 +249,7 @@ export function ReviewItemEdit() {
 
           <div
             className="actions"
-            style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid rgba(0,217,255,0.1)" }}
+            style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid var(--border-color)" }}
           >
             <button
               type="button"
