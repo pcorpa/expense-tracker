@@ -8,7 +8,8 @@ A mobile-first expense tracker with AI-powered receipt scanning, group managemen
 
 ## Features
 
-- **Receipt OCR** — upload a receipt (JPEG, PNG, or HEIC); a Supabase Edge Function calls Gemini 2.5 Flash to extract the store, date, items, quantities, unit prices, and totals
+- **Receipt OCR** — upload a receipt (JPEG, PNG, WebP, or HEIC); the image is converted to JPEG client-side if needed, then a Supabase Edge Function sends it directly to Gemini 2.5 Flash to extract the store, date, items, quantities, unit prices, and totals
+- **Failed receipt retry** — receipts that fail AI processing appear in the Review Queue with a Retry button
 - **Manual entry** — log expenses without a receipt, with product autocomplete against the existing catalog
 - **Review queue** — every AI-extracted transaction lands in a review queue; edit and approve to promote it to master data
 - **Group management** — create groups, invite members by email (sent via Resend), and track shared expenses
@@ -55,8 +56,7 @@ supabase/
   migrations/             incremental SQL migrations (0001–0005)
   schema.sql              full DB schema + RLS policies
   functions/
-    process-receipts/     receipt_id → Gemini → transactions + items
-    process-images/       image processing pipeline
+    process-receipts/     receipt_id + image_data → Gemini → transactions + items
     send-invitation/      group invitation emails via Resend
 ```
 
@@ -98,17 +98,32 @@ Or run `supabase/schema.sql` and the files in `supabase/migrations/` from the Su
 
 Create a private Storage bucket named `receipts` in your Supabase project dashboard.
 
+Then run this in the SQL editor to grant authenticated users upload access:
+
+```sql
+CREATE POLICY "Authenticated users can upload receipts"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'receipts');
+```
+
+> **If you applied `schema.sql` to an existing database** that already had `transaction_items` without `product_id`, run this migration before using the AI pipeline:
+> ```sql
+> ALTER TABLE transaction_items
+>   ADD COLUMN IF NOT EXISTS product_id uuid references products(id) on delete set null;
+> NOTIFY pgrst, 'reload schema';
+> ```
+
 ### 5. Supabase — Google OAuth
 
 In your Supabase project go to **Authentication → Providers → Google** and enable it. You'll need a Google OAuth 2.0 client ID and secret from [Google Cloud Console](https://console.cloud.google.com/). Add your app's redirect URL (`<SUPABASE_URL>/auth/v1/callback`) as an authorised redirect URI in Google Cloud.
 
 ### 6. Edge Functions
 
-Deploy the three functions:
+Deploy the functions:
 
 ```bash
 supabase functions deploy process-receipts
-supabase functions deploy process-images
 supabase functions deploy send-invitation
 ```
 
@@ -117,9 +132,10 @@ Set the following secrets in your Supabase project (**Project Settings → Edge 
 | Secret | Description |
 |---|---|
 | `GEMINI_API_KEY` | Google AI Studio API key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (from Project Settings → API) |
 | `RESEND_API_KEY` | Resend API key for sending invitation emails |
 | `APP_URL` | Your deployed app URL (used in invitation email link) |
+
+> **Note:** `SUPABASE_URL` and `SUPABASE_ANON_KEY` are injected automatically — no need to set them manually. The `process-receipts` function runs as the authenticated user (user JWT forwarded from the client), so no service role key is required.
 
 > **Note on Resend:** The free tier only sends to verified addresses. To send invitations to arbitrary emails, verify a domain at [resend.com/domains](https://resend.com/domains) and update the `from` address in `send-invitation/index.ts`.
 
@@ -134,5 +150,5 @@ pnpm dev
 | Phase | Status |
 |---|---|
 | Phase 1 — Core schema, auth, manual entry, review queue | Complete |
-| Phase 2 — AI receipt pipeline (upload + Edge Functions) | In progress |
+| Phase 2 — AI receipt pipeline (upload + Edge Functions) | Complete |
 | Phase 3 — Analytics and charts (Recharts) | Not started |

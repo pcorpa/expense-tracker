@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
@@ -21,6 +21,12 @@ type ReviewTransaction = Omit<Transaction, "transaction_items"> & {
   receipts?: { status: string }[];
 };
 
+type FailedReceipt = {
+  id: string;
+  created_at: string;
+  city: string | null;
+};
+
 async function fetchReviewTransactions() {
   const { data, error } = await supabase
     .from("transactions")
@@ -32,9 +38,21 @@ async function fetchReviewTransactions() {
   return data as ReviewTransaction[];
 }
 
+async function fetchFailedReceipts() {
+  const { data, error } = await supabase
+    .from("receipts")
+    .select("id, created_at, city")
+    .in("status", ["error", "pending"])
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data as FailedReceipt[];
+}
+
 export function ReviewQueue() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [retrying, setRetrying] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ["review-transactions", user?.id],
@@ -42,10 +60,30 @@ export function ReviewQueue() {
     enabled: Boolean(user),
   });
 
+  const failedQuery = useQuery({
+    queryKey: ["failed-receipts", user?.id],
+    queryFn: fetchFailedReceipts,
+    enabled: Boolean(user),
+  });
+
   const transactions = useMemo(() => {
     if (!query.data) return [];
     return query.data;
   }, [query.data]);
+
+  const handleRetry = async (receiptId: string) => {
+    setRetrying(receiptId);
+    const { error } = await supabase.functions.invoke("process-receipts", {
+      body: { receipt_id: receiptId },
+    });
+    setRetrying(null);
+    if (error) {
+      window.alert(`Retry failed: ${error.message}`);
+      return;
+    }
+    failedQuery.refetch();
+    query.refetch();
+  };
 
   const handleApprove = async (transaction: ReviewTransaction) => {
     const items = transaction.transaction_items ?? [];
@@ -122,7 +160,9 @@ export function ReviewQueue() {
       </div>
 
       <div className="content-block">
-        {!transactions.length && <p>No transactions need review right now.</p>}
+        {!transactions.length && !failedQuery.data?.length && (
+          <p>No transactions need review right now.</p>
+        )}
 
         {transactions.map((transaction) => {
           const receiptStatus = transaction.receipts?.[0]?.status;
@@ -242,6 +282,31 @@ export function ReviewQueue() {
             </article>
           );
         })}
+        {!!failedQuery.data?.length && (
+          <>
+            <h2 style={{ marginTop: 32, fontSize: "1rem", color: "var(--text-muted)" }}>
+              Failed — AI could not process
+            </h2>
+            {failedQuery.data.map((receipt) => (
+              <article key={receipt.id} className="ticket-card">
+                <div className="ticket-card__header">
+                  <div>
+                    <strong>Receipt processing failed</strong>
+                    <span>{new Date(receipt.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="button button--secondary button--small"
+                    onClick={() => handleRetry(receipt.id)}
+                    disabled={retrying === receipt.id}
+                  >
+                    {retrying === receipt.id ? "Retrying…" : "Retry AI"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </>
+        )}
       </div>
     </main>
   );

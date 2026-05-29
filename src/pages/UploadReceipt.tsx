@@ -211,19 +211,29 @@ export function UploadReceipt() {
       return;
     }
 
-    // Trigger AI processing
+    // Convert image to base64 to send directly to the function
+    const imageBase64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string).split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    // Trigger AI processing — image data travels with the request, no storage download needed
     setStatus("Sending to AI for analysis…");
     const { error: fnError } = await supabase.functions.invoke(
       "process-receipts",
-      { body: { receipt_id: receiptRow.id } },
+      { body: { receipt_id: receiptRow.id, image_data: imageBase64, mime_type: file.type || "image/jpeg" } },
     );
 
     setLoading(false);
 
     if (fnError) {
-      setStatus(
-        `Receipt saved but AI processing failed: ${fnError.message}. You can retry from the Review Queue.`,
-      );
+      await supabase
+        .from("receipts")
+        .update({ status: "error" })
+        .eq("id", receiptRow.id);
+      setStatus(`AI processing failed: ${fnError.message}`);
       return;
     }
 

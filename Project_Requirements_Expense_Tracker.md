@@ -74,15 +74,15 @@ The objective of this phase is to build a flawless relational database and a man
 * **Mathematical Cross-Validation:** Implementation of client-side logic that automatically calculates subtotals and blocks the save action if the sum of the items differs from the transaction total (enforcing the 1% tolerance margin).  
 * **Data Normalization Engine:** Integration of an autocomplete component connected to the `transaction_items` or `products`table to unify nomenclature and eliminate statistical noise caused by typographical errors.
 
-  ### **Phase 2: Asynchronous AI Pipeline & Human-in-the-Loop (Next Steps)**
+  ### **Phase 2: Asynchronous AI Pipeline & Human-in-the-Loop (Complete)**
 
 This phase automates data ingestion by eliminating repetitive manual entry, while implementing a strict audit workflow to maintain statistical accuracy.
 
-* **Storage Configuration:** Creation of secure Supabase Storage buckets to host receipt images, optimized for standard mobile formats.  
-* **Edge Function Deployment:** Programming a serverless function (Deno) triggered automatically upon detecting a new image upload in the storage bucket.  
-* **Gemini API Integration:** Secure server-side connection to the Google Gemini API, transmitting the structured extraction prompt (JSON Schema) and handling quota limit errors (HTTP 429).  
-* **Graceful Degradation Logic:** System configuration ensuring that unreadable fields or "Unknown" AI outputs are safely inserted as `NULL` values into the database without breaking the execution of surrounding rows.  
-* **Audit Dashboard (`ReviewQueue.tsx`):** Creation of a dedicated interface listing exclusively transactions with `is_reviewed = false`. **Crucially, this dashboard must include full inline editing capabilities, allowing the user to manually correct, overwrite, or fill in missing values (quantities, names, unit prices) before explicitly approving and consolidating the record into the master dataset.**
+* **Storage Configuration:** Private Supabase Storage bucket (`receipts`) hosts uploaded receipt images. All image formats supported client-side (HEIC, PNG, WebP, JPEG) — converted to JPEG before upload via `heic2any` and Canvas API.
+* **Edge Function (`process-receipts`):** Deno serverless function invoked directly by the client after upload. The client encodes the image as base64 and sends it in the request body alongside the `receipt_id` — the function never downloads from storage, eliminating storage policy complexity. The function runs as the authenticated user (user JWT forwarded from the client) for full RLS compliance and traceability.
+* **Gemini API Integration:** Server-side connection to Google Gemini 2.5 Flash via REST API. The image and a structured Spanish-language prompt are sent together; the response is constrained to a strict JSON schema. The function validates the 1% math tolerance between item sum and receipt total before inserting.
+* **Graceful Degradation Logic:** Unreadable fields or "Unknown" AI outputs are inserted as `NULL`. If the Edge Function fails at any step, the receipt is marked `error` and surfaced in the Review Queue for manual retry.
+* **Audit Dashboard (`ReviewQueue.tsx`):** Lists all transactions with `is_reviewed = false`. Includes full inline editing (tap any item to edit name, category, quantity, unit price), math validation on approve, and a **Failed receipts** section showing any `error`/`pending` receipts with a **Retry AI** button.
 
   ### **Phase 3: Statistical Analytics & Data Portability**
 

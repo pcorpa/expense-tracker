@@ -1,15 +1,13 @@
-import { serve } from 'npm:std/server';
-import { createClient } from 'npm:@supabase/supabase-js';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !GEMINI_API_KEY) {
-  throw new Error('Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or GEMINI_API_KEY');
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
 const ALLOWED_CATEGORIES = [
   'Comida', 'Limpieza', 'Salud', 'Entretenimiento', 'Hogar',
@@ -44,7 +42,23 @@ const responseSchema = {
   required: ['filename', 'date', 'vendor', 'city', 'total_amount', 'currency', 'products'],
 };
 
-serve(async (req) => {
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: CORS_HEADERS });
+  }
+
+  if (!GEMINI_API_KEY) {
+    return new Response(
+      JSON.stringify({ error: 'GEMINI_API_KEY secret is not set in Supabase dashboard' }),
+      { status: 500, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } },
+    );
+  }
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
   try {
     const body = await req.json();
     const receiptId = body?.receipt_id;
@@ -52,42 +66,34 @@ serve(async (req) => {
     if (!receiptId) {
       return new Response(JSON.stringify({ error: 'receipt_id is required' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       });
     }
 
+    console.log('[1/5] START update receipt status → processing. receipt_id:', receiptId);
     await supabase.from('receipts').update({ status: 'processing' }).eq('id', receiptId);
+    console.log('[1/5] DONE update receipt status → processing');
 
+    console.log('[2/5] START fetch receipt row from DB');
     const { data: receipt, error: receiptError } = await supabase
       .from('receipts')
-      .select('*')
+      .select('id, user_id, group_id, image_url')
       .eq('id', receiptId)
       .single();
-
     if (receiptError || !receipt) {
+      console.error('[2/5] FAILED fetch receipt row:', receiptError?.code, receiptError?.message);
       await supabase.from('receipts').update({ status: 'error' }).eq('id', receiptId);
       return new Response(JSON.stringify({ error: receiptError?.message ?? 'Receipt not found' }), {
         status: 404,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       });
     }
+    console.log('[2/5] DONE fetch receipt row');
 
-    const { data: imageData, error: imageError } = await supabase.storage
-      .from('receipts')
-      .download(receipt.image_url);
-
-    if (imageError || !imageData) {
-      await supabase.from('receipts').update({ status: 'error' }).eq('id', receiptId);
-      return new Response(JSON.stringify({ error: imageError?.message ?? 'Failed to fetch image' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const imageBytes = await imageData.arrayBuffer();
-    const base64Image = btoa(String.fromCharCode(...new Uint8Array(imageBytes)));
-
+    const base64Image: string = body.image_data;
+    const mimeType: string = body.mime_type || 'image/jpeg';
     const fileName = receipt.image_url.split('/').pop() ?? 'unknown';
+
     const prompt = `Analiza este ticket. Nombre: ${fileName}.
 Categorías permitidas: Comida, Limpieza, Salud, Entretenimiento, Hogar, Transporte, Vestimenta, Restaurante, Cuidado Personal, Mascotas, Servicios, Educación, Tecnología, Otro.
 Reglas:
@@ -103,7 +109,7 @@ Reglas:
             { text: prompt },
             {
               inline_data: {
-                mime_type: 'image/jpeg',
+                mime_type: mimeType,
                 data: base64Image,
               },
             },
@@ -116,6 +122,7 @@ Reglas:
       },
     };
 
+    console.log('[3/5] START call Gemini API');
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
@@ -124,20 +131,19 @@ Reglas:
         body: JSON.stringify(payload),
       },
     );
-
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text();
+      console.error('[3/5] FAILED Gemini API. status:', geminiResponse.status, 'body:', errorText);
       await supabase.from('receipts').update({ status: 'error' }).eq('id', receiptId);
       return new Response(JSON.stringify({ error: `Gemini API error: ${errorText}` }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       });
     }
-
     const geminiData = await geminiResponse.json();
     const extractedData = JSON.parse(geminiData.candidates[0].content.parts[0].text);
+    console.log('[3/5] DONE Gemini API. vendor:', extractedData.vendor, 'products:', extractedData.products?.length);
 
-    // Validate 1% tolerance: |sum(item_total) - total_amount| ≤ total_amount × 0.01
     const itemSum = extractedData.products.reduce(
       (sum: number, item: any) => sum + (item.item_total_from_ticket ?? 0),
       0,
@@ -150,6 +156,7 @@ Reglas:
 
     const city = extractedData.city && extractedData.city !== 'Unknown' ? extractedData.city : null;
 
+    console.log('[4/5] START insert transaction + items');
     const { data: transactionData, error: transactionError } = await supabase
       .from('transactions')
       .insert([
@@ -169,14 +176,14 @@ Reglas:
       .single();
 
     if (transactionError || !transactionData) {
+      console.error('[4/5] FAILED insert transaction:', transactionError?.message);
       await supabase.from('receipts').update({ status: 'error' }).eq('id', receiptId);
       return new Response(JSON.stringify({ error: transactionError?.message ?? 'Failed to create transaction' }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       });
     }
 
-    // Upsert each product into the catalog and collect product IDs
     const itemsToInsert = await Promise.all(
       extractedData.products.map(async (product: any) => {
         const name = product.name && product.name !== 'Unknown' ? product.name : null;
@@ -219,28 +226,32 @@ Reglas:
     );
 
     const { error: itemsError } = await supabase.from('transaction_items').insert(itemsToInsert);
-
     if (itemsError) {
+      console.error('[4/5] FAILED insert items:', itemsError.message);
       await supabase.from('receipts').update({ status: 'error' }).eq('id', receiptId);
       return new Response(JSON.stringify({ error: itemsError.message }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       });
     }
+    console.log('[4/5] DONE insert transaction + items. transaction_id:', transactionData.id);
 
+    console.log('[5/5] START update receipt status → needs_review');
     await supabase
       .from('receipts')
       .update({ status: 'needs_review', raw_ocr_json: extractedData, city })
       .eq('id', receiptId);
+    console.log('[5/5] DONE update receipt status → needs_review');
 
     return new Response(
       JSON.stringify({ status: 'success', transaction_id: transactionData.id, math_warning: mathWarning }),
-      { headers: { 'Content-Type': 'application/json' } },
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } },
     );
   } catch (error) {
+    console.error('[process-receipts] Unhandled exception:', error instanceof Error ? error.message : error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
+      { status: 500, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } },
     );
   }
 });
