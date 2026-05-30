@@ -42,11 +42,16 @@ export type TransactionType = "income" | "expense";
 
 export type Product = {
   id: string;
-  group_id: string;
+  group_id?: string; // not present in all deployments
   name: string;
   category: string | null;
   created_at: string;
 };
+
+export type MappingStatus =
+  | "auto_matched"
+  | "needs_mapping_review"
+  | "new_product_candidate";
 
 export type TransactionItem = {
   id: string;
@@ -57,6 +62,8 @@ export type TransactionItem = {
   quantity: number;
   unit_price: number;
   item_total: number;
+  mapping_status: MappingStatus | null;
+  suggested_product_id: string | null;
   created_at: string;
 };
 

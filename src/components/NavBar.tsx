@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import { usePendingAuditCount } from "../lib/usePendingAuditCount";
 import {
   LogOut,
   Home as HomeIcon,
@@ -10,6 +11,7 @@ import {
   User,
   Image,
   BarChart2,
+  ShieldCheck,
 } from "lucide-react";
 
 const links = [
@@ -19,6 +21,7 @@ const links = [
   { to: "/transactions", label: "Transactions", icon: ClipboardList },
   { to: "/review", label: "Review", icon: CheckCircle2 },
   { to: "/analytics", label: "Analytics", icon: BarChart2 },
+  { to: "/product-audit", label: "Product Audit", icon: ShieldCheck, badge: true },
   { to: "/groups", label: "Groups", icon: Users },
   { to: "/profile", label: "Profile", icon: User },
 ];
@@ -26,6 +29,7 @@ const links = [
 export function NavBar() {
   const { user, signOut } = useAuth();
   const location = useLocation();
+  const { data: pendingCount = 0 } = usePendingAuditCount();
 
   return (
     <header className="app-shell__nav">
@@ -41,10 +45,27 @@ export function NavBar() {
         {links.map((item) => {
           const Icon = item.icon;
           const active = location.pathname === item.to;
+          const count = item.badge ? pendingCount : 0;
           return (
-            <Link key={item.to} to={item.to} className={active ? "active" : ""}>
+            <Link key={item.to} to={item.to} className={active ? "active" : ""} style={{ position: "relative" }}>
               <Icon size={18} />
               {item.label}
+              {count > 0 && (
+                <span style={{
+                  marginLeft: "auto",
+                  background: "#f59e0b",
+                  color: "#000",
+                  borderRadius: 10,
+                  padding: "1px 7px",
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  lineHeight: "1.4",
+                  minWidth: 18,
+                  textAlign: "center",
+                }}>
+                  {count > 99 ? "99+" : count}
+                </span>
+              )}
             </Link>
           );
         })}

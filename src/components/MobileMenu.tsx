@@ -12,7 +12,9 @@ import {
   X,
   Image,
   BarChart2,
+  ShieldCheck,
 } from "lucide-react";
+import { usePendingAuditCount } from "../lib/usePendingAuditCount";
 
 const links = [
   { to: "/", label: "Home", icon: HomeIcon },
@@ -21,6 +23,7 @@ const links = [
   { to: "/transactions", label: "Transactions", icon: ClipboardList },
   { to: "/review", label: "Review", icon: CheckCircle2 },
   { to: "/analytics", label: "Analytics", icon: BarChart2 },
+  { to: "/product-audit", label: "Product Audit", icon: ShieldCheck, badge: true },
   { to: "/groups", label: "Groups", icon: Users },
   { to: "/profile", label: "Profile", icon: UserIcon },
 ];
@@ -34,6 +37,7 @@ export function MobileMenu({
 }) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const { data: pendingCount = 0 } = usePendingAuditCount();
 
   const avatarUrl = user?.user_metadata?.avatar_url;
   const displayName =
@@ -53,9 +57,23 @@ export function MobileMenu({
           )}
           <span className="mobile-nav__email">{displayName}</span>
         </div>
-        <button className="mobile-nav__burger" onClick={() => setOpen(true)}>
-          <Menu size={28} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {pendingCount > 0 && (
+            <span style={{
+              background: "#f59e0b",
+              color: "#000",
+              borderRadius: 10,
+              padding: "2px 8px",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+            }}>
+              {pendingCount > 99 ? "99+" : pendingCount} audit
+            </span>
+          )}
+          <button className="mobile-nav__burger" onClick={() => setOpen(true)}>
+            <Menu size={28} />
+          </button>
+        </div>
       </div>
 
       {open && (
@@ -72,14 +90,30 @@ export function MobileMenu({
               {links.map((item) => {
                 const Icon = item.icon;
                 const active = location.pathname === item.to;
+                const count = item.badge ? pendingCount : 0;
                 return (
                   <Link
                     key={item.to}
                     to={item.to}
                     className={active ? "active" : ""}
                     onClick={() => setOpen(false)}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
                   >
-                    <Icon size={24} /> <span>{item.label}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <Icon size={24} /> <span>{item.label}</span>
+                    </span>
+                    {count > 0 && (
+                      <span style={{
+                        background: "#f59e0b",
+                        color: "#000",
+                        borderRadius: 10,
+                        padding: "1px 8px",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                      }}>
+                        {count > 99 ? "99+" : count}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

@@ -184,46 +184,21 @@ Reglas:
       });
     }
 
-    const itemsToInsert = await Promise.all(
-      extractedData.products.map(async (product: any) => {
-        const name = product.name && product.name !== 'Unknown' ? product.name : null;
-        const category = ALLOWED_CATEGORIES.includes(product.category) ? product.category : 'Otro';
-        const unitPrice = product.unit_price ?? null;
-        const quantity = product.quantity ?? 1;
-        const itemTotal = product.item_total_from_ticket ?? null;
-
-        let productId: string | null = null;
-        if (name) {
-          const { data: existingProduct } = await supabase
-            .from('products')
-            .select('id')
-            .eq('group_id', receipt.group_id)
-            .eq('name', name)
-            .maybeSingle();
-
-          if (existingProduct) {
-            productId = existingProduct.id;
-          } else {
-            const { data: newProduct } = await supabase
-              .from('products')
-              .insert({ group_id: receipt.group_id, name, category })
-              .select('id')
-              .single();
-            if (newProduct) productId = newProduct.id;
-          }
-        }
-
-        return {
-          transaction_id: transactionData.id,
-          product_id: productId,
-          name: name ?? 'Unknown',
-          category,
-          quantity,
-          unit_price: unitPrice ?? 0,
-          item_total: itemTotal ?? 0,
-        };
-      }),
-    );
+    // product_id is intentionally NULL — the client-side normalization pipeline
+    // (fuzzy matching + ProductAudit human review) will assign canonical products.
+    const itemsToInsert = extractedData.products.map((product: any) => {
+      const name = product.name && product.name !== 'Unknown' ? product.name : null;
+      const category = ALLOWED_CATEGORIES.includes(product.category) ? product.category : 'Otro';
+      return {
+        transaction_id: transactionData.id,
+        product_id: null,
+        name: name ?? 'Unknown',
+        category,
+        quantity: product.quantity ?? 1,
+        unit_price: product.unit_price ?? 0,
+        item_total: product.item_total_from_ticket ?? 0,
+      };
+    });
 
     const { error: itemsError } = await supabase.from('transaction_items').insert(itemsToInsert);
     if (itemsError) {

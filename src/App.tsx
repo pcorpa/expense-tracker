@@ -19,6 +19,7 @@ import { Profile } from "./pages/Profile";
 import { TransactionEntry } from "./pages/TransactionEntry";
 import { GroupManager } from "./pages/GroupManager";
 import { Analytics } from "./pages/Analytics";
+import { ProductAudit } from "./pages/ProductAudit";
 import "./App.css";
 
 const queryClient = new QueryClient();
@@ -111,6 +112,14 @@ function AppShell() {
             element={
               <ProtectedRoute>
                 <Analytics />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/product-audit"
+            element={
+              <ProtectedRoute>
+                <ProductAudit />
               </ProtectedRoute>
             }
           />
