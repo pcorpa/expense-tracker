@@ -11,6 +11,7 @@ import {
   Menu,
   X,
   Image,
+  BarChart2,
 } from "lucide-react";
 
 const links = [
@@ -19,6 +20,7 @@ const links = [
   { to: "/upload", label: "Upload Receipt", icon: Image },
   { to: "/transactions", label: "Transactions", icon: ClipboardList },
   { to: "/review", label: "Review", icon: CheckCircle2 },
+  { to: "/analytics", label: "Analytics", icon: BarChart2 },
   { to: "/groups", label: "Groups", icon: Users },
   { to: "/profile", label: "Profile", icon: UserIcon },
 ];
