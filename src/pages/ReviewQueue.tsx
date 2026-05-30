@@ -349,7 +349,7 @@ export function ReviewQueue() {
                     </button>
                     <button
                       type="button"
-                      className="button button--secondary button--small"
+                      className="delete-btn"
                       onClick={() => setConfirmDelete(receipt.id)}
                       disabled={deleting === receipt.id || retrying === receipt.id}
                       aria-label="Delete failed receipt"

@@ -17,30 +17,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // getSession() is the authoritative initializer — it handles token refresh if needed.
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setUser(data.session?.user ?? null);
       setLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        const { user } = session;
-        if (user.app_metadata?.provider === 'google') {
-          await supabase.from('profiles').upsert(
-            {
-              id: user.id,
-              email: user.email ?? '',
-              first_name: user.user_metadata?.given_name ?? '',
-              last_name: user.user_metadata?.family_name ?? '',
-            },
-            { onConflict: 'id', ignoreDuplicates: true },
-          );
-        }
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      // INITIAL_SESSION duplicates getSession() and can arrive before it resolves,
+      // causing a null-user flash that sends ProtectedRoute to /signin.
+      if (event === 'INITIAL_SESSION') return;
+
+      if (event === 'SIGNED_IN' && session?.user?.app_metadata?.provider === 'google') {
+        // Fire-and-forget so state is never delayed by the network call.
+        supabase.from('profiles').upsert(
+          {
+            id: session.user.id,
+            email: session.user.email ?? '',
+            first_name: session.user.user_metadata?.given_name ?? '',
+            last_name: session.user.user_metadata?.family_name ?? '',
+          },
+          { onConflict: 'id', ignoreDuplicates: true },
+        );
       }
+
       setSession(session);
       setUser(session?.user ?? null);
-      setLoading(false);
     });
 
     return () => {

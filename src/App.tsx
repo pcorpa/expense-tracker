@@ -6,6 +6,7 @@ import { NavBar } from "./components/NavBar";
 import { MobileMenu } from "./components/MobileMenu";
 import { useAuth } from "./lib/auth";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { PublicOnlyRoute } from "./components/PublicOnlyRoute";
 import { Home } from "./pages/Home";
 import { SignIn } from "./pages/SignIn";
 import { SignUp } from "./pages/SignUp";
@@ -38,8 +39,8 @@ function AppShell() {
       {isMobile ? <MobileMenu user={user} signOut={signOut} /> : <NavBar />}
       <div className="app-shell__content">
         <Routes>
-          <Route path="/signin" element={<SignIn />} />
-          <Route path="/signup" element={<SignUp />} />
+          <Route path="/signin" element={<PublicOnlyRoute><SignIn /></PublicOnlyRoute>} />
+          <Route path="/signup" element={<PublicOnlyRoute><SignUp /></PublicOnlyRoute>} />
           <Route
             path="/"
             element={

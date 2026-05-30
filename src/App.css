@@ -765,7 +765,7 @@ textarea:focus {
 
 .item-details-grid {
   display: grid;
-  grid-template-columns: 1fr 70px 100px 40px;
+  grid-template-columns: 1fr 70px 100px 1fr;
   gap: 12px;
   align-items: end;
 }
@@ -921,7 +921,6 @@ textarea:focus {
   .page__header { margin-bottom: 22px; }
   .grid--cards { grid-template-columns: 1fr; gap: 12px; }
   .item-details-grid { grid-template-columns: 1fr 1fr; }
-  .delete-btn { grid-column: span 2; justify-content: flex-end; margin-top: -8px; }
   .auth-card { padding: 28px 20px; }
   .product-row { grid-template-columns: 1fr 1fr; }
   .ticket-card__header { flex-direction: column; gap: 12px; }
@@ -934,7 +933,6 @@ textarea:focus {
   .auth-card { padding: 24px 16px; }
   .content-block { padding: 20px 16px; }
   .item-details-grid { grid-template-columns: 1fr; }
-  .delete-btn { grid-column: auto; }
   .total-value { font-size: 1.8rem; }
   .page--centered { padding: 16px; }
   .item-row-btn__math { display: none; }

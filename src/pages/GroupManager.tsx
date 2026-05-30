@@ -126,6 +126,7 @@ export function GroupManager() {
       </div>
 
       <div className="content-block">
+        <h2>Create a group</h2>
         <form className="form-grid" onSubmit={handleSubmit}>
           <label>
             Group name
@@ -141,7 +142,10 @@ export function GroupManager() {
         </form>
 
         {status ? <div className="alert">{status}</div> : null}
+      </div>
 
+      <div className="content-block" style={{ marginTop: "1rem" }}>
+        <h2>Your groups</h2>
         <div className="table-wrapper">
           {groups.length ? (
             groups.map((group) => (

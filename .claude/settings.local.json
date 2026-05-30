@@ -5,7 +5,23 @@
       "Bash(pnpm tsc *)",
       "Bash(pnpm dlx *)",
       "Bash(pnpm exec *)",
-      "Bash(pnpm supabase *)"
+      "Bash(pnpm supabase *)",
+      "Bash(supabase --version)",
+      "Bash(brew upgrade *)",
+      "Bash(supabase functions *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(pnpm dev *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5174/)",
+      "Bash(open -a Safari http://localhost:5174/)",
+      "Bash(screencapture -x /tmp/app_screenshot.png)",
+      "Bash(pkill -f \"vite --port 5174\")",
+      "Bash(git -C /Users/pedro/Documents/expense_tracker status)",
+      "Bash(git -C /Users/pedro/Documents/expense_tracker diff --stat)",
+      "Bash(git -C /Users/pedro/Documents/expense_tracker diff supabase/schema.sql)",
+      "Bash(git -C /Users/pedro/Documents/expense_tracker log --oneline -3)",
+      "Bash(git -C /Users/pedro/Documents/expense_tracker commit -m ' *)",
+      "Bash(git push *)"
     ],
     "additionalDirectories": [
       "/Users/pedro/.claude/projects/-Users-pedro-Documents-expense-tracker/memory"

@@ -487,33 +487,36 @@ export function TransactionEntry() {
                   }
                   required
                 />
-                <div
-                  style={{
-                    padding: "9px 10px",
-                    background: "var(--bg-secondary)",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "8px",
-                    textAlign: "right",
-                    fontWeight: 600,
-                    fontSize: "0.9rem",
-                    color: "var(--text-primary)",
-                    minWidth: "80px",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {currency}{" "}
-                  {calculateItemTotal(item.quantity, item.unit_price).toFixed(2)}
-                </div>
-
-                {items.length > 1 && (
-                  <button
-                    type="button"
-                    className="delete-btn"
-                    onClick={() => removeItem(index)}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div
+                    style={{
+                      flex: 4,
+                      padding: "9px 10px",
+                      background: "var(--bg-secondary)",
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "8px",
+                      textAlign: "right",
+                      fontWeight: 600,
+                      fontSize: "0.9rem",
+                      color: "var(--text-primary)",
+                      whiteSpace: "nowrap",
+                    }}
                   >
-                    <Trash2 size={18} />
-                  </button>
-                )}
+                    {currency}{" "}
+                    {calculateItemTotal(item.quantity, item.unit_price).toFixed(2)}
+                  </div>
+
+                  {items.length > 1 && (
+                    <button
+                      type="button"
+                      className="delete-btn"
+                      style={{ flex: 1 }}
+                      onClick={() => removeItem(index)}
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}
