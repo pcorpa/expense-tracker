@@ -22,12 +22,31 @@ const FIXED_CATEGORIES = [
   { id: "otro", label: "Otro" },
 ];
 
+const ERR_STYLE: React.CSSProperties = {
+  color: "rgba(248,113,113,0.9)",
+  fontSize: "0.76rem",
+  marginTop: 4,
+  marginBottom: 0,
+  display: "block",
+};
+
+const INPUT_ERR: React.CSSProperties = {
+  outline: "1px solid rgba(248,113,113,0.7)",
+};
+
 interface TransactionItem {
   product_name: string;
   category: string;
   category_custom: string;
   quantity: string;
   unit_price: string;
+}
+
+function itemNameOk(item: TransactionItem) { return item.product_name.trim().length > 0; }
+function itemQtyOk(item: TransactionItem) { return parseFloat(item.quantity) > 0; }
+function itemPriceOk(item: TransactionItem) { return parseFloat(item.unit_price) > 0; }
+function itemCatOk(item: TransactionItem) {
+  return item.category !== "otro" || item.category_custom.trim().length > 0;
 }
 
 export function TransactionEntry() {
@@ -57,7 +76,7 @@ export function TransactionEntry() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -119,7 +138,6 @@ export function TransactionEntry() {
     const newItems = [...items];
     newItems[index][field] = value;
     setItems(newItems);
-    setValidationError(null);
 
     if (field === "product_name") {
       setSuggestingForItemIndex(index);
@@ -145,52 +163,25 @@ export function TransactionEntry() {
     return sum + calculateItemTotal(item.quantity, item.unit_price);
   }, 0);
 
-  const validateTotals = (): boolean => {
-    const hasEmptyItems = items.some(
-      (item) => !item.product_name.trim() || !item.unit_price,
+  const isFormValid = () =>
+    vendor.trim().length > 0 &&
+    items.every(
+      (item) =>
+        itemNameOk(item) &&
+        itemQtyOk(item) &&
+        itemPriceOk(item) &&
+        itemCatOk(item),
     );
-    if (hasEmptyItems) {
-      setValidationError("All items must have a product name and unit price.");
-      return false;
-    }
-
-    // Validate 1% tolerance: |(quantity × unit_price) - item_total| ≤ (item_total × 0.01)
-    // Since we auto-calculate item_total, this validation will typically always pass
-    // unless there are floating-point precision issues
-    const toleranceErrors = items
-      .map((item, idx) => {
-        const quantity = parseFloat(item.quantity) || 0;
-        const unit_price = parseFloat(item.unit_price) || 0;
-        const calculated = quantity * unit_price;
-        // Items always match since we auto-calculate, but keeping tolerance check for safety
-        const tolerance = Math.abs(calculated) * 0.01;
-        if (Math.abs(calculated - calculated) > tolerance) {
-          return `Item ${idx + 1} ("${item.product_name}"): math error`;
-        }
-        return null;
-      })
-      .filter(Boolean);
-
-    if (toleranceErrors.length > 0) {
-      setValidationError(toleranceErrors.join("; "));
-      return false;
-    }
-
-    return true;
-  };
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user || !groupId) return;
 
-    if (!validateTotals()) {
-      setLoading(false);
-      return;
-    }
+    setShowErrors(true);
+    if (!isFormValid()) return;
 
     setLoading(true);
     setMessage(null);
-    setValidationError(null);
 
     const { data: txData, error: txError } = await supabase
       .from("transactions")
@@ -213,16 +204,13 @@ export function TransactionEntry() {
       return;
     }
 
-    // Create or fetch products, then insert transaction items with product_id
     const itemsToInsert = await Promise.all(
       items.map(async (item) => {
         const category =
           item.category === "otro" ? item.category_custom : item.category;
 
-        // Try to find or create product
         let productId = null;
         try {
-          // Check if product exists
           const { data: existingProduct } = await supabase
             .from("products")
             .select("id")
@@ -233,7 +221,6 @@ export function TransactionEntry() {
           if (existingProduct) {
             productId = existingProduct.id;
           } else {
-            // Create new product
             const { data: newProduct, error: productError } = await supabase
               .from("products")
               .insert({
@@ -248,8 +235,7 @@ export function TransactionEntry() {
               productId = newProduct.id;
             }
           }
-        } catch (err) {
-          // Product lookup/creation failed, but continue with transaction item
+        } catch {
           // product_id will be null
         }
 
@@ -327,14 +313,20 @@ export function TransactionEntry() {
               onChange={(e) => setDate(e.target.value)}
             />
           </label>
-          <label>
-            {type === "expense" ? "Vendor" : "Source"}
-            <input
-              value={vendor}
-              onChange={(e) => setVendor(e.target.value)}
-              placeholder="Name"
-            />
-          </label>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ marginBottom: 4 }}>
+              {type === "expense" ? "Vendor" : "Source"}
+              <input
+                value={vendor}
+                onChange={(e) => setVendor(e.target.value)}
+                placeholder="Name"
+                style={showErrors && !vendor.trim() ? INPUT_ERR : undefined}
+              />
+            </label>
+            {showErrors && !vendor.trim() && (
+              <span style={ERR_STYLE}>This field is required</span>
+            )}
+          </div>
           <label>
             Currency
             <select
@@ -355,7 +347,7 @@ export function TransactionEntry() {
           {items.map((item, index) => (
             <div key={index} className="item-card-compact">
               <div className="item-main-info">
-                <div style={{ position: "relative" }}>
+                <div style={{ position: "relative", marginBottom: 12 }}>
                   <input
                     placeholder="Product Name"
                     value={item.product_name}
@@ -395,8 +387,14 @@ export function TransactionEntry() {
                         }
                       }
                     }}
-                    required
+                    style={{
+                      marginBottom: 0,
+                      ...(showErrors && !itemNameOk(item) ? INPUT_ERR : {}),
+                    }}
                   />
+                  {showErrors && !itemNameOk(item) && (
+                    <span style={ERR_STYLE}>Product name is required</span>
+                  )}
                   {suggestingForItemIndex === index &&
                     productSuggestions.length > 0 && (
                       <ul
@@ -459,34 +457,51 @@ export function TransactionEntry() {
                     ))}
                   </select>
                   {item.category === "otro" && (
-                    <input
-                      placeholder="Custom Category"
-                      value={item.category_custom}
-                      onChange={(e) =>
-                        updateItem(index, "category_custom", e.target.value)
-                      }
-                    />
+                    <>
+                      <input
+                        placeholder="Custom Category"
+                        value={item.category_custom}
+                        onChange={(e) =>
+                          updateItem(index, "category_custom", e.target.value)
+                        }
+                        style={showErrors && !itemCatOk(item) ? INPUT_ERR : undefined}
+                      />
+                      {showErrors && !itemCatOk(item) && (
+                        <span style={ERR_STYLE}>Custom category is required</span>
+                      )}
+                    </>
                   )}
                 </div>
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="Qty"
-                  value={item.quantity}
-                  onChange={(e) =>
-                    updateItem(index, "quantity", e.target.value)
-                  }
-                />
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="Unit Price"
-                  value={item.unit_price}
-                  onChange={(e) =>
-                    updateItem(index, "unit_price", e.target.value)
-                  }
-                  required
-                />
+                <div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Qty"
+                    value={item.quantity}
+                    onChange={(e) =>
+                      updateItem(index, "quantity", e.target.value)
+                    }
+                    style={showErrors && !itemQtyOk(item) ? INPUT_ERR : undefined}
+                  />
+                  {showErrors && !itemQtyOk(item) && (
+                    <span style={ERR_STYLE}>Required</span>
+                  )}
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Unit Price"
+                    value={item.unit_price}
+                    onChange={(e) =>
+                      updateItem(index, "unit_price", e.target.value)
+                    }
+                    style={showErrors && !itemPriceOk(item) ? INPUT_ERR : undefined}
+                  />
+                  {showErrors && !itemPriceOk(item) && (
+                    <span style={ERR_STYLE}>Required</span>
+                  )}
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div
                     style={{
@@ -532,10 +547,6 @@ export function TransactionEntry() {
               {currency} {calculatedTotal.toFixed(2)}
             </span>
           </div>
-
-          {validationError && (
-            <div className="alert">{validationError}</div>
-          )}
 
           {message && <p className="status-message">{message}</p>}
 

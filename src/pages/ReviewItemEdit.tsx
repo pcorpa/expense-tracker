@@ -176,7 +176,7 @@ export function ReviewItemEdit() {
                 value={form.name}
                 onChange={(e) => field("name", e.target.value)}
                 placeholder="e.g. Leche entera"
-                autoFocus
+                autoComplete="off"
               />
             </div>
 
