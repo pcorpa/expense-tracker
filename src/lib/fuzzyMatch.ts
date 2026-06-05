@@ -1,4 +1,4 @@
-import Fuse from "fuse.js";
+import Fuse, { type IFuseOptions } from "fuse.js";
 import type { MappingStatus, Product } from "../types";
 
 export type MatchResult = {
@@ -8,7 +8,7 @@ export type MatchResult = {
   suggestedProductName: string | null;
 };
 
-const FUSE_OPTIONS: Fuse.IFuseOptions<Product> = {
+const FUSE_OPTIONS: IFuseOptions<Product> = {
   keys: ["name"],
   includeScore: true,
   threshold: 1.0, // disabled — we apply our own thresholds below

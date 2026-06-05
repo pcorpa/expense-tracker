@@ -66,7 +66,7 @@ async function fetchAuditItems(): Promise<AuditItem[]> {
     .in("mapping_status", ["needs_mapping_review", "new_product_candidate"])
     .order("name");
   if (error) throw Object.assign(new Error(error.message), { code: (error as any).code });
-  return data as AuditItem[];
+  return data as unknown as AuditItem[];
 }
 
 async function fetchAllProducts(): Promise<Product[]> {
@@ -129,7 +129,7 @@ async function runScan(): Promise<{ scanned: number; autoMatched: number; needsR
   }
 
   // 6. Batch update
-  const updates: Promise<unknown>[] = [];
+  const updates: PromiseLike<unknown>[] = [];
 
   for (const [productId, ids] of autoMatchedByProduct) {
     updates.push(
