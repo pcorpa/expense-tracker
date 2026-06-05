@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
-const sendgridApiKey = Deno.env.get("SENDGRID_API_KEY");
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -33,13 +32,6 @@ serve(async (req: Request) => {
   }
 
   try {
-    console.log("send-invitation: env check", {
-      hasUrl: !!supabaseUrl,
-      hasAnonKey: !!supabaseAnonKey,
-      hasServiceRole: !!supabaseServiceRoleKey,
-      hasSendgrid: !!sendgridApiKey,
-    });
-
     const authHeader = req.headers.get("Authorization");
     const token = authHeader?.replace("Bearer ", "") ?? "";
 
@@ -53,8 +45,6 @@ serve(async (req: Request) => {
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
-
-    console.log("send-invitation: authenticated user", user.id);
 
     const { group_id, invited_email, group_name, inviting_user_email } =
       (await req.json()) as InvitationRequest;
@@ -79,7 +69,6 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     if (memberError || !membership) {
-      console.error("Membership check failed:", memberError?.message, "found:", membership);
       return new Response(
         JSON.stringify({ error: "You are not a member of this group" }),
         {
@@ -88,8 +77,6 @@ serve(async (req: Request) => {
         },
       );
     }
-
-    console.log("send-invitation: membership ok, attempting upsert");
 
     const { error: dbError } = await adminClient.from("invitations").upsert(
       [{
@@ -103,12 +90,7 @@ serve(async (req: Request) => {
     );
 
     if (dbError) {
-      console.error("DB upsert error:", JSON.stringify({
-        message: dbError.message,
-        code: dbError.code,
-        details: dbError.details,
-        hint: dbError.hint,
-      }));
+      console.error("DB upsert error:", JSON.stringify(dbError));
       return new Response(JSON.stringify({
         error: dbError.message,
         code: dbError.code,
@@ -120,50 +102,19 @@ serve(async (req: Request) => {
       });
     }
 
-    console.log("send-invitation: upsert ok, sending email");
-
+    // Try to send a Supabase auth invite email (only works for users without an account).
+    // If the user already exists, this fails silently — they'll see the in-app notification instead.
     const appUrl = Deno.env.get("APP_URL") || "http://localhost:5173";
-    const senderEmail = Deno.env.get("SENDGRID_SENDER_EMAIL");
-
-    const emailResponse = await fetch("https://api.sendgrid.com/v3/mail/send", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${sendgridApiKey}`,
+    const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
+      invited_email,
+      {
+        redirectTo: `${appUrl}/invitations`,
+        data: { invited_by: inviting_user_email, group_name },
       },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: invited_email }] }],
-        from: { email: senderEmail, name: "Expense Tracker" },
-        reply_to: { email: inviting_user_email },
-        subject: `You're invited to join "${group_name}" on Expense Tracker`,
-        content: [{
-          type: "text/html",
-          value: `
-            <h2>You're invited!</h2>
-            <p><strong>${inviting_user_email}</strong> has invited you to join the "<strong>${group_name}</strong>" group on Expense Tracker.</p>
-            <p>Open the app and look for the invitation to accept or decline.</p>
-            <p>
-              <a href="${appUrl}" style="
-                display: inline-block;
-                padding: 12px 24px;
-                background-color: #007bff;
-                color: white;
-                text-decoration: none;
-                border-radius: 5px;
-                font-weight: bold;
-              ">
-                Open Expense Tracker
-              </a>
-            </p>
-          `,
-        }],
-      }),
-    });
+    );
 
-    if (!emailResponse.ok) {
-      const emailError = await emailResponse.json();
-      // Email delivery failure is non-fatal: invitation is already in the DB.
-      console.error("SendGrid error (non-fatal):", JSON.stringify(emailError));
+    if (inviteError) {
+      console.log("Auth invite skipped (user likely already exists):", inviteError.message);
     }
 
     return new Response(JSON.stringify({ success: true }), {
