@@ -44,7 +44,7 @@ export function Invitations() {
       if (accept) {
         const { error: memberError } = await supabase
           .from("group_members")
-          .insert({ group_id: invitation.group_id, user_id: user!.id, role: "member" });
+          .upsert({ group_id: invitation.group_id, user_id: user!.id, role: "member" }, { onConflict: "group_id,user_id" });
         if (memberError) throw memberError;
       }
       const { error } = await supabase
