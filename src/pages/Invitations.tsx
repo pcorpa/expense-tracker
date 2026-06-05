@@ -14,13 +14,18 @@ interface Invitation {
 }
 
 async function fetchInvitations(email: string): Promise<Invitation[]> {
+  console.log("[Invitations] fetching for email:", email);
   const { data, error } = await supabase
     .from("invitations")
     .select("*, groups(name)")
     .eq("status", "pending")
     .eq("invited_email", email)
     .order("created_at", { ascending: false });
-  if (error) throw error;
+  if (error) {
+    console.error("[Invitations] fetch error:", error.code, error.message, error.details, error.hint);
+    throw error;
+  }
+  console.log("[Invitations] fetched:", data?.length, "rows");
   return data ?? [];
 }
 
