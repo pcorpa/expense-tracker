@@ -7,7 +7,18 @@ create table if not exists products (
   unique(group_id, name)
 );
 
-create index if not exists products_group_id_idx on products(group_id);
+-- Add group_id if the table existed without it
+alter table products add column if not exists group_id uuid references groups(id) on delete cascade;
+
+-- Only create the index if the column exists
+do $$ begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'products' and column_name = 'group_id'
+  ) then
+    execute 'create index if not exists products_group_id_idx on products(group_id)';
+  end if;
+end $$;
 
 alter table products enable row level security;
 
