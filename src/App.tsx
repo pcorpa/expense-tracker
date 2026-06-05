@@ -20,6 +20,7 @@ import { TransactionEntry } from "./pages/TransactionEntry";
 import { GroupManager } from "./pages/GroupManager";
 import { Analytics } from "./pages/Analytics";
 import { ProductAudit } from "./pages/ProductAudit";
+import { Invitations } from "./pages/Invitations";
 import "./App.css";
 
 const queryClient = new QueryClient();
@@ -120,6 +121,14 @@ function AppShell() {
             element={
               <ProtectedRoute>
                 <ProductAudit />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/invitations"
+            element={
+              <ProtectedRoute>
+                <Invitations />
               </ProtectedRoute>
             }
           />

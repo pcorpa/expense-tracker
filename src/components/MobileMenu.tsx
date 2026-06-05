@@ -13,8 +13,10 @@ import {
   Image,
   BarChart2,
   ShieldCheck,
+  Mail,
 } from "lucide-react";
 import { usePendingAuditCount } from "../lib/usePendingAuditCount";
+import { usePendingInvitationsCount } from "../lib/usePendingInvitationsCount";
 
 const links = [
   { to: "/", label: "Home", icon: HomeIcon },
@@ -23,7 +25,8 @@ const links = [
   { to: "/transactions", label: "Transactions", icon: ClipboardList },
   { to: "/review", label: "Review", icon: CheckCircle2 },
   { to: "/analytics", label: "Analytics", icon: BarChart2 },
-  { to: "/product-audit", label: "Product Audit", icon: ShieldCheck, badge: true },
+  { to: "/product-audit", label: "Product Audit", icon: ShieldCheck, badge: "audit" },
+  { to: "/invitations", label: "Invitations", icon: Mail, badge: "invitations" },
   { to: "/groups", label: "Groups", icon: Users },
   { to: "/profile", label: "Profile", icon: UserIcon },
 ];
@@ -38,6 +41,7 @@ export function MobileMenu({
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const { data: pendingCount = 0 } = usePendingAuditCount();
+  const { data: invitationsCount = 0 } = usePendingInvitationsCount();
 
   const avatarUrl = user?.user_metadata?.avatar_url;
   const displayName =
@@ -58,6 +62,18 @@ export function MobileMenu({
           <span className="mobile-nav__email">{displayName}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {invitationsCount > 0 && (
+            <span style={{
+              background: "#3b82f6",
+              color: "#fff",
+              borderRadius: 10,
+              padding: "2px 8px",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+            }}>
+              {invitationsCount > 99 ? "99+" : invitationsCount} invite{invitationsCount > 1 ? "s" : ""}
+            </span>
+          )}
           {pendingCount > 0 && (
             <span style={{
               background: "#f59e0b",
@@ -90,7 +106,7 @@ export function MobileMenu({
               {links.map((item) => {
                 const Icon = item.icon;
                 const active = location.pathname === item.to;
-                const count = item.badge ? pendingCount : 0;
+                const count = item.badge === "audit" ? pendingCount : item.badge === "invitations" ? invitationsCount : 0;
                 return (
                   <Link
                     key={item.to}
