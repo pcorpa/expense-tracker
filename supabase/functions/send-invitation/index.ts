@@ -114,7 +114,7 @@ serve(async (req: Request) => {
     );
 
     if (inviteError) {
-      console.log("Auth invite skipped (user likely already exists):", inviteError.message);
+      console.error("Auth invite error:", inviteError.message, inviteError.status);
     }
 
     return new Response(JSON.stringify({ success: true }), {
