@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
-const resendApiKey = Deno.env.get("RESEND_API_KEY");
+const brevoApiKey = Deno.env.get("BREVO_API_KEY");
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -37,7 +37,7 @@ serve(async (req: Request) => {
       hasUrl: !!supabaseUrl,
       hasAnonKey: !!supabaseAnonKey,
       hasServiceRole: !!supabaseServiceRoleKey,
-      hasResend: !!resendApiKey,
+      hasBrevo: !!brevoApiKey,
     });
 
     const authHeader = req.headers.get("Authorization");
@@ -122,22 +122,23 @@ serve(async (req: Request) => {
 
     console.log("send-invitation: upsert ok, sending email");
 
-    const emailResponse = await fetch("https://api.resend.com/emails", {
+    const appUrl = Deno.env.get("APP_URL") || "http://localhost:5173";
+    const emailResponse = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${resendApiKey}`,
+        "api-key": brevoApiKey ?? "",
       },
       body: JSON.stringify({
-        from: "onboarding@resend.dev",
-        to: invited_email,
+        sender: { name: "Expense Tracker", email: Deno.env.get("BREVO_SENDER_EMAIL") },
+        to: [{ email: invited_email }],
         subject: `You're invited to join "${group_name}" on Expense Tracker`,
-        html: `
+        htmlContent: `
           <h2>You're invited!</h2>
           <p><strong>${inviting_user_email}</strong> has invited you to join the "<strong>${group_name}</strong>" group on Expense Tracker.</p>
           <p>Open the app and look for the invitation to accept or decline.</p>
           <p>
-            <a href="${Deno.env.get("APP_URL") || "http://localhost:5173"}" style="
+            <a href="${appUrl}" style="
               display: inline-block;
               padding: 12px 24px;
               background-color: #007bff;
