@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
-const brevoApiKey = Deno.env.get("BREVO_API_KEY");
+const sendgridApiKey = Deno.env.get("SENDGRID_API_KEY");
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -37,7 +37,7 @@ serve(async (req: Request) => {
       hasUrl: !!supabaseUrl,
       hasAnonKey: !!supabaseAnonKey,
       hasServiceRole: !!supabaseServiceRoleKey,
-      hasBrevo: !!brevoApiKey,
+      hasSendgrid: !!sendgridApiKey,
     });
 
     const authHeader = req.headers.get("Authorization");
@@ -123,42 +123,47 @@ serve(async (req: Request) => {
     console.log("send-invitation: upsert ok, sending email");
 
     const appUrl = Deno.env.get("APP_URL") || "http://localhost:5173";
-    const emailResponse = await fetch("https://api.brevo.com/v3/smtp/email", {
+    const senderEmail = Deno.env.get("SENDGRID_SENDER_EMAIL");
+
+    const emailResponse = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "api-key": brevoApiKey ?? "",
+        "Authorization": `Bearer ${sendgridApiKey}`,
       },
       body: JSON.stringify({
-        sender: { name: "Expense Tracker", email: Deno.env.get("BREVO_SENDER_EMAIL") },
-        to: [{ email: invited_email }],
+        personalizations: [{ to: [{ email: invited_email }] }],
+        from: { email: senderEmail, name: "Expense Tracker" },
+        reply_to: { email: inviting_user_email },
         subject: `You're invited to join "${group_name}" on Expense Tracker`,
-        htmlContent: `
-          <h2>You're invited!</h2>
-          <p><strong>${inviting_user_email}</strong> has invited you to join the "<strong>${group_name}</strong>" group on Expense Tracker.</p>
-          <p>Open the app and look for the invitation to accept or decline.</p>
-          <p>
-            <a href="${appUrl}" style="
-              display: inline-block;
-              padding: 12px 24px;
-              background-color: #007bff;
-              color: white;
-              text-decoration: none;
-              border-radius: 5px;
-              font-weight: bold;
-            ">
-              Open Expense Tracker
-            </a>
-          </p>
-        `,
+        content: [{
+          type: "text/html",
+          value: `
+            <h2>You're invited!</h2>
+            <p><strong>${inviting_user_email}</strong> has invited you to join the "<strong>${group_name}</strong>" group on Expense Tracker.</p>
+            <p>Open the app and look for the invitation to accept or decline.</p>
+            <p>
+              <a href="${appUrl}" style="
+                display: inline-block;
+                padding: 12px 24px;
+                background-color: #007bff;
+                color: white;
+                text-decoration: none;
+                border-radius: 5px;
+                font-weight: bold;
+              ">
+                Open Expense Tracker
+              </a>
+            </p>
+          `,
+        }],
       }),
     });
 
     if (!emailResponse.ok) {
       const emailError = await emailResponse.json();
       // Email delivery failure is non-fatal: invitation is already in the DB.
-      // To send to arbitrary addresses, verify a domain at resend.com/domains.
-      console.error("Resend error (non-fatal):", JSON.stringify(emailError));
+      console.error("SendGrid error (non-fatal):", JSON.stringify(emailError));
     }
 
     return new Response(JSON.stringify({ success: true }), {
