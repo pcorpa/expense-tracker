@@ -1,99 +1,171 @@
-# **Project Requirements & System Architecture: AI Expense Tracker**
+# Project Requirements & System Architecture: AI Expense Tracker
 
-This document outlines the comprehensive technical requirements, data models, and workflow architectures for the AI-powered expense tracking application. The system is designed to ensure strict data integrity and high-quality statistical modeling through robust normalization and automated AI ingestion.
+This document outlines the technical requirements, data models, and workflow architectures for the AI-powered expense tracking application. The system ensures strict data integrity and high-quality statistical modeling through robust normalization and automated AI ingestion.
 
-## **1\. Definition of "Statistical Truth" & Rules**
+---
 
-* **Audit State:** A record is only considered "Master Data" when is\_reviewed \= true. Until then, it remains a draft subject to changes.  
-* **Mathematical Tolerance Margin:** A **1% tolerance** is established for cross-validations.  
-  * *Rule:* |(Quantity × Unit\_Price) \- Item\_Total| ≤ (Item\_Total × 0.01)  
-  * *Purpose:* To handle minor discrepancies due to decimal rounding, particularly for weighed products (e.g., kilograms).  
-* **Header Integrity:** The sum of all item\_total values must strictly match the total\_amount of the transaction header within the tolerance margin (1%).  
-* **Uncertainty Handling:** If the AI encounters illegible data, it MUST default to NULL or "Unknown" to force a human review, strictly avoiding data hallucinations.
+## 1. Definition of "Statistical Truth" & Rules
 
-## **2\. Category Taxonomy**
+- **Audit State:** A record is only considered "Master Data" when `is_reviewed = true`. Until then it remains a draft subject to changes.
+- **Mathematical Tolerance Margin:** A **1% tolerance** is established for cross-validations.
+  - *Rule:* `|(Quantity × Unit_Price) - Item_Total| ≤ (Item_Total × 0.01)`
+  - *Purpose:* To handle minor discrepancies due to decimal rounding, particularly for weighed products (e.g., kilograms).
+- **Header Integrity:** The sum of all `item_total` values must strictly match the `total_amount` of the transaction header within the 1% tolerance margin.
+- **Uncertainty Handling:** If the AI encounters illegible data, it MUST default to `NULL` or `"Unknown"` to force human review — data hallucination is strictly forbidden.
 
-To ensure consistent groupings in pivot tables and charts, only the following explicitly defined categories are allowed:
+---
 
-* Comida  
-* Limpieza  
-* Salud  
-* Entretenimiento  
-* Hogar  
-* Transporte  
-* Vestimenta  
-* Restaurante  
-* Cuidado Personal  
-* Mascotas  
-* Servicios  
-* Educación  
-* Tecnología  
-* Otro
+## 2. Category Taxonomy
 
-## **3\. AI Specifications (Gemini 2.5 Flash)**
+Only the following 14 categories are allowed across all transaction items:
 
-The extraction engine uses the following protocol to transform images into structured data. The prompt is maintained in Spanish to match the expected receipt language and categorization.  
-**Extraction Prompt:**  
-Analiza este ticket. Nombre: ${fileName}.  
-Categorías permitidas: Comida, Limpieza, Salud, Entretenimiento, Hogar, Transporte, Vestimenta, Restaurante, Cuidado Personal, Mascotas, Servicios, Educación, Tecnología, Otro.  
-Reglas:  
-1\. 'unit\_price': Precio unitario.  
-2\. 'quantity': Cantidad o peso.  
-3\. 'item\_total\_from\_ticket': El precio final de la línea.  
-4\. Usa 'Unknown' si no es legible.
+- Comida
+- Limpieza
+- Salud
+- Entretenimiento
+- Hogar
+- Transporte
+- Vestimenta
+- Restaurante
+- Cuidado Personal
+- Mascotas
+- Servicios
+- Educación
+- Tecnología
+- Otro
 
-**Response Schema (JSON):** The system strictly expects an object containing: filename, date, vendor, city, total\_amount, and an array of products.
+---
 
-##  
+## 3. AI Specifications (Gemini 2.5 Flash)
 
-## **4\. Data Model, Entities, and Relationships**
+The extraction engine uses the following protocol to transform receipt images into structured data. The prompt is in Spanish to match the expected receipt language.
 
-The database in Supabase is normalized to allow for accurate time-series analysis and price variation tracking.
+**Extraction prompt:**
+```
+Analiza este ticket. Nombre: ${fileName}.
+Categorías permitidas: Comida, Limpieza, Salud, Entretenimiento, Hogar, Transporte,
+Vestimenta, Restaurante, Cuidado Personal, Mascotas, Servicios, Educación, Tecnología, Otro.
+Reglas:
+1. 'unit_price': Precio unitario.
+2. 'quantity': Cantidad o peso.
+3. 'item_total_from_ticket': El precio final de la línea.
+4. Usa 'Unknown' si no es legible.
+```
 
-| Entity (Table) | Properties (Columns) | Relationships |
-| :---- | :---- | :---- |
-| **profiles** | id, email, first\_name, last\_name, created\_at | Linked to auth.users. Many-to-Many with groups via group\_members. |
-| **groups** | id, name, created\_at | One-to-Many with receipts and transactions. |
-| **group\_members** | group\_id, user\_id, role, created\_at | Junction table resolving the Many-to-Many relationship between profiles and groups. |
-| **receipts** | id, user\_id, group\_id, image\_url, status, raw\_ocr\_json, created\_at, updated\_at | One-to-One or One-to-Zero with transactions. |
-| **transactions** | id, receipt\_id, user\_id, group\_id, type, is\_reviewed, vendor\_or\_source, date, total\_amount, currency | The header record. One-to-Many with transaction\_items. |
-| **transaction\_items** | id, transaction\_id, name, category, product\_id, quantity, unit\_price, item\_total | The granular detail. Many-to-One with transactions and Many-to-One with products. |
-| **products** | id, name (UNIQUE), category, created\_at | Master catalog to normalize names. One-to-Many with transaction\_items. |
+**Response schema (JSON):** `filename`, `date`, `vendor`, `city`, `total_amount`, and an array of `products` (each with `name`, `category`, `quantity`, `unit_price`, `item_total_from_ticket`).
 
-## 
+---
 
-## **5\. Feature Roadmap**
+## 4. Data Model
 
-### **Phase 1: Core Architecture & Data Integrity (Current)**
+The database is normalized in Supabase Postgres to allow accurate time-series analysis and price variation tracking.
 
-The objective of this phase is to build a flawless relational database and a manual entry interface that prevents the ingestion of corrupt or mathematically invalid data.
+| Table | Key Columns | Notes |
+|---|---|---|
+| `profiles` | `id`, `email`, `first_name`, `last_name`, `created_at` | Linked to `auth.users`. |
+| `groups` | `id`, `name`, `created_at` | Top-level grouping entity. |
+| `group_members` | `group_id`, `user_id`, `role` (`admin`/`member`), `created_at` | Junction table. RLS: users see only their own memberships. |
+| `receipts` | `id`, `user_id`, `group_id`, `image_url`, `status` (enum), `raw_ocr_json`, `city`, `created_at` | Status: `pending`, `processing`, `needs_review`, `completed`, `error`. |
+| `transactions` | `id`, `receipt_id`, `user_id`, `group_id`, `type`, `is_reviewed`, `vendor_or_source`, `date`, `total_amount`, `currency` | `is_reviewed = true` = master data. |
+| `transaction_items` | `id`, `transaction_id`, `name`, `category`, `product_id`, `quantity`, `unit_price`, `item_total`, `mapping_status`, `suggested_product_id` | `mapping_status`: `auto_matched`, `needs_mapping_review`, `new_product_candidate`. |
+| `products` | `id`, `group_id`, `name`, `category`, `created_at` | Shared product catalog. Unique on `(group_id, name)`. |
+| `invitations` | `id`, `group_id`, `invited_email`, `invited_by`, `status` (`pending`/`accepted`/`declined`), `created_at`, `updated_at` | RLS uses `auth.jwt() ->> 'email'` for `invited_email` matching (not `auth.users` subquery). |
 
-* **Relational Schema Implementation:** Deployment of the database structure in Supabase (`transactions`, `transaction_items`, `products`, `receipts`), ensuring numeric fields accept `NULL` values for future automated ingestion while maintaining strict foreign key constraints.  
-* **Security & Access Control:** Configuration of Row Level Security (RLS) policies to guarantee users can only read and write data belonging to their authorized groups (`group_id`).  
-* **Granular Entry UI (`TransactionEntry.tsx`):** Development of a dynamic form that forces the user to justify every expense through individual line items.  
-* **Mathematical Cross-Validation:** Implementation of client-side logic that automatically calculates subtotals and blocks the save action if the sum of the items differs from the transaction total (enforcing the 1% tolerance margin).  
-* **Data Normalization Engine:** Integration of an autocomplete component connected to the `transaction_items` or `products`table to unify nomenclature and eliminate statistical noise caused by typographical errors.
+### RLS notes
 
-  ### **Phase 2: Asynchronous AI Pipeline & Human-in-the-Loop (Complete)**
+- All tables have RLS enabled.
+- `invitations` select/update policy uses `auth.jwt() ->> 'email'` — do NOT revert to `auth.email()` or `(select email from auth.users ...)` as both fail with 403 for authenticated users.
+- `products` RLS is scoped to group membership.
 
-This phase automates data ingestion by eliminating repetitive manual entry, while implementing a strict audit workflow to maintain statistical accuracy.
+---
 
-* **Storage Configuration:** Private Supabase Storage bucket (`receipts`) hosts uploaded receipt images. All image formats supported client-side (HEIC, PNG, WebP, JPEG) — converted to JPEG before upload via `heic2any` and Canvas API.
-* **Edge Function (`process-receipts`):** Deno serverless function invoked directly by the client after upload. The client encodes the image as base64 and sends it in the request body alongside the `receipt_id` — the function never downloads from storage, eliminating storage policy complexity. The function runs as the authenticated user (user JWT forwarded from the client) for full RLS compliance and traceability.
-* **Gemini API Integration:** Server-side connection to Google Gemini 2.5 Flash via REST API. The image and a structured Spanish-language prompt are sent together; the response is constrained to a strict JSON schema. The function validates the 1% math tolerance between item sum and receipt total before inserting.
-* **Graceful Degradation Logic:** Unreadable fields or "Unknown" AI outputs are inserted as `NULL`. If the Edge Function fails at any step, the receipt is marked `error` and surfaced in the Review Queue for manual retry.
-* **Audit Dashboard (`ReviewQueue.tsx`):** Lists all transactions with `is_reviewed = false`. Includes full inline editing (tap any item to edit name, category, quantity, unit price), math validation on approve, and a **Failed receipts** section showing any `error`/`pending` receipts with a **Retry AI** button.
+## 5. Edge Functions
 
-  ### **Phase 3: Statistical Analytics & Data Portability**
+### `process-receipts`
+- Invoked directly by the client after uploading a receipt image to Supabase Storage
+- Client encodes the image as base64 and sends it in the request body with the `receipt_id`
+- Function never downloads from Storage — eliminates storage policy complexity
+- Runs as the authenticated user (JWT forwarded from client) for full RLS compliance
+- Validates 1% math tolerance between item sum and receipt total before inserting
+- On failure: marks receipt as `error`, surfaces in Review Queue for manual retry
 
-The final phase transforms clean data into actionable insights, applying statistical methods to analyze price variance, consumption habits, and budget anomalies.
+### `send-invitation`
+- Called by `GroupManager.tsx` when a user invites someone to a group
+- Saves the invitation to the `invitations` table via upsert (on conflict `group_id, invited_email`)
+- Calls `supabase.auth.admin.inviteUserByEmail` for the invited email:
+  - If the invitee has no account → they receive a Supabase auth email with a signup link redirecting to `/invitations`
+  - If the invitee already has an account → invite call fails silently; they see the invitation in-app
+- Email delivery is non-fatal — the DB record is the source of truth
+- **Email deliverability note:** Supabase free tier limits auth emails to 2/hour. Custom SMTP (Gmail) works but personal Gmail accounts may be flagged as phishing by recipients. A custom domain with SPF/DKIM is the reliable long-term solution.
 
-* **Taxonomy Distribution:** Integration of charting libraries (Chart.js / Recharts) to render pie and bar charts showing expenditure density based strictly on the 14 official categories.  
-* **Time-Series Price Tracking (Inflation Index):** Development of a longitudinal analysis module to track the evolution of the `unit_price` for specific products over time, acting as a personal inflation gauge.  
-* **Moving Averages (Trend Smoothing):** Visualizing 7-day or 30-day moving averages for general expenses to filter out daily noise and identify underlying spending trends.  
-* **Anomaly Detection (Outliers):** Implementing logic to automatically flag individual transactions or items that fall outside a defined statistical threshold (e.g., 2 standard deviations from the category mean) to catch pricing errors or unusual spending spikes.  
-* **Pareto Analysis (80/20 Rule):** Generating reports that identify the top 20% of vendors or products that account for 80% of the total financial output.  
-* **Shared Finance Breakdown:** Implementation of `group_id` filtered views to automatically calculate balances and contribution ratios for each member in a shared expense group.  
-* **Analytical Export Utility:** Creation of an export engine generating flat CSV or JSON files with normalized columns, optimized for direct import into external statistical software environments.  
-* 
+---
 
+## 6. Feature Phases
+
+### Phase 1 — Core Architecture & Data Integrity ✅ Complete
+
+- Relational schema in Supabase with RLS
+- `TransactionEntry.tsx` — manual entry with math validation and product autocomplete
+- `ReviewQueue.tsx` — audit queue with inline editing and approve flow
+- `ReviewItemEdit.tsx` — item-level editor
+
+### Phase 2 — Asynchronous AI Pipeline ✅ Complete
+
+- Supabase Storage bucket `receipts` for receipt images
+- `process-receipts` Edge Function — image → Gemini 2.5 Flash → structured data → DB
+- HEIC/PNG/WebP support via `heic2any` client-side conversion
+- Failed receipts surfaced in Review Queue with Retry AI button
+- `ReviewTransactionEdit.tsx` — transaction-level editor
+
+### Phase 3 — Statistical Analytics ✅ Complete
+
+`Analytics.tsx` with 7 tabs:
+- **Overview** — KPI cards + category pie chart + monthly bar chart
+- **Trends** — daily spend line chart + 7-day and 30-day moving averages
+- **Products** — unit price evolution per product (inflation index)
+- **Anomalies** — items with z-score > 2 flagged automatically
+- **Pareto** — ComposedChart bar+line showing 80/20 vendor/product concentration
+- **Groups** — member contribution breakdown
+- **Export** — CSV and JSON download of filtered data
+
+### Phase 4 — Product Normalization Pipeline ✅ Complete
+
+- `fuzzyMatch.ts` — Fuse.js fuzzy matching pipeline with configurable thresholds:
+  - ≥ 90% similarity → `auto_matched` (product_id assigned, no review needed)
+  - 60–89% → `needs_mapping_review` (suggested match surfaced for human confirmation)
+  - < 60% → `new_product_candidate` (no match, new product to be created)
+- `ProductAudit.tsx` — UI for reviewing fuzzy matches and creating new products
+- `usePendingAuditCount` hook — badge count in NavBar/MobileMenu
+- Migrations: `0008_product_normalization.sql`, `0009_fix_product_rpc_no_group_id.sql`
+
+### Phase 5 — Groups & Invitations ✅ Complete
+
+- `GroupManager.tsx` — group creation and member invitation by email
+- `send-invitation` Edge Function — DB upsert + Supabase auth invite
+- `Invitations.tsx` — in-app invitation page with Accept/Decline
+  - Accept: upserts into `group_members` + updates invitation status
+  - Decline: updates invitation status only
+- `usePendingInvitationsCount` hook — badge count in NavBar/MobileMenu
+- NavBar and MobileMenu updated with Invitations link and blue badge
+
+---
+
+## 7. Deployment Architecture
+
+| Layer | Service | Branch |
+|---|---|---|
+| Frontend | Vercel | `main` → production, `dev` → preview |
+| Database + Auth | Supabase (production project) | — |
+| Edge Functions | Supabase (production project) | Deployed via CLI |
+| Dev database | Supabase (dev project) | Used locally and for `dev` branch preview |
+
+### Workflow
+1. Work on `dev` branch, test against dev Supabase project (`.env.development`)
+2. Schema changes: `supabase db push` while CLI linked to dev project
+3. When ready: merge `dev` → `main`, link CLI to production, run `supabase db push` + `supabase functions deploy`
+4. Vercel auto-deploys `main` to production on every push
+
+### Key URLs
+- Production app: `https://expense-tracker-five-steel-62.vercel.app`
+- Production Supabase: `hppnikjyivfyueaarlzq`
+- Dev Supabase: `ftzxgfzemlaqdmeyobpl`
