@@ -14,6 +14,7 @@ import {
   Pencil,
   Trash2,
   X,
+  Camera,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
@@ -31,6 +32,7 @@ type AuditTransaction = {
   date: string | null;
   total_amount: number | null;
   currency: string;
+  receipt_image_path: string | null;
 };
 
 type Cluster = {
@@ -47,12 +49,17 @@ type Cluster = {
 async function fetchAuditTransactions(): Promise<AuditTransaction[]> {
   const { data, error } = await supabase
     .from("transactions")
-    .select("id, vendor_or_source, vendor_mapping_status, group_id, date, total_amount, currency")
+    .select("id, vendor_or_source, vendor_mapping_status, group_id, date, total_amount, currency, receipts(image_url)")
     .in("vendor_mapping_status", ["needs_vendor_review", "new_vendor_candidate"])
     .not("vendor_or_source", "is", null)
     .order("vendor_or_source");
   if (error) throw Object.assign(new Error(error.message), { code: (error as any).code });
-  return (data ?? []).map((row: any) => ({ ...row, suggested_vendor_id: null }));
+  return (data ?? []).map((row: any) => ({
+    ...row,
+    suggested_vendor_id: null,
+    receipt_image_path: (row.receipts as any)?.image_url ?? null,
+    receipts: undefined,
+  }));
 }
 
 async function fetchAllVendors(): Promise<Vendor[]> {
@@ -180,7 +187,14 @@ function VendorCombobox({
   const filtered = useMemo(() => {
     if (!value.trim()) return vendors.slice(0, 8);
     const q = value.toLowerCase();
-    return vendors.filter((v) => v.canonical_name.toLowerCase().includes(q)).slice(0, 8);
+    return vendors.filter((v) => {
+      const canonical = v.canonical_name.toLowerCase();
+      // Direct match: "disco s.a." contains "disco", or user typed canonical directly
+      if (canonical.includes(q) || q.includes(canonical)) return true;
+      // Token match: any canonical word (3+ chars) found inside the input text
+      // e.g. "disco" found in "supermercados disco del uruguay s.a."
+      return canonical.split(/[\s\W]+/).filter((w) => w.length >= 3).some((token) => q.includes(token));
+    }).slice(0, 8);
   }, [value, vendors]);
 
   useEffect(() => {
@@ -423,6 +437,21 @@ export function VendorAudit() {
   const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
   const [vendorEditName, setVendorEditName] = useState("");
 
+  // lightbox state
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxLoading, setLightboxLoading] = useState(false);
+
+  const openReceipt = useCallback(async (imagePath: string) => {
+    setLightboxLoading(true);
+    const { data, error } = await supabase.storage.from("receipts").createSignedUrl(imagePath, 120);
+    setLightboxLoading(false);
+    if (error || !data?.signedUrl) {
+      toast.error("Could not load receipt image.");
+      return;
+    }
+    setLightboxUrl(data.signedUrl);
+  }, []);
+
   const getEdit = useCallback(
     (key: string, defaultName: string) => clusterEdits[key] ?? defaultName,
     [clusterEdits],
@@ -572,7 +601,7 @@ export function VendorAudit() {
                     )}
                   </div>
                   {isExpanded && (
-                    <TransactionList transactions={cluster.transactions} />
+                    <TransactionList transactions={cluster.transactions} onViewReceipt={openReceipt} />
                   )}
                 </div>
               );
@@ -637,7 +666,7 @@ export function VendorAudit() {
                     <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>Only group admins can add vendors.</p>
                   )}
                   {isExpanded && (
-                    <TransactionList transactions={cluster.transactions} />
+                    <TransactionList transactions={cluster.transactions} onViewReceipt={openReceipt} />
                   )}
                 </div>
               );
@@ -726,6 +755,32 @@ export function VendorAudit() {
         </section>
       )}
 
+      {lightboxLoading && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <Loader2 size={32} color="#fff" style={{ animation: "spin 1s linear infinite" }} />
+        </div>
+      )}
+
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 24 }}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff" }}
+          >
+            <X size={18} />
+          </button>
+          <img
+            src={lightboxUrl}
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 8, objectFit: "contain", boxShadow: "0 16px 48px rgba(0,0,0,0.6)" }}
+            alt="Receipt"
+          />
+        </div>
+      )}
+
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
@@ -733,15 +788,26 @@ export function VendorAudit() {
 
 // ─── transaction list ──────────────────────────────────────────────────────────
 
-function TransactionList({ transactions }: { transactions: AuditTransaction[] }) {
+function TransactionList({ transactions, onViewReceipt }: { transactions: AuditTransaction[]; onViewReceipt: (path: string) => void }) {
   return (
     <div style={{ marginTop: 12, borderTop: "1px solid var(--border-color)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
       {transactions.map((tx) => (
         <div key={tx.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: "0.82rem" }}>
           <span style={{ color: "var(--text-muted)" }}>{tx.date ?? "Unknown date"}</span>
-          <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
-            {tx.currency} {(tx.total_amount ?? 0).toFixed(2)}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
+              {tx.currency} {(tx.total_amount ?? 0).toFixed(2)}
+            </span>
+            {tx.receipt_image_path && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onViewReceipt(tx.receipt_image_path!); }}
+                title="View receipt image"
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 2, display: "flex", alignItems: "center" }}
+              >
+                <Camera size={14} />
+              </button>
+            )}
+          </div>
         </div>
       ))}
     </div>
