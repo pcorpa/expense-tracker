@@ -148,6 +148,54 @@ The database is normalized in Supabase Postgres to allow accurate time-series an
 - `usePendingInvitationsCount` hook — badge count in NavBar/MobileMenu
 - NavBar and MobileMenu updated with Invitations link and blue badge
 
+### Phase 6 — Data Pipeline Quality & Vendor Normalization 🔲 Planned
+
+Driven by analysis of real receipt data (Uruguayan supermarkets, May–June 2026). The goal is to make the AI ingestion pipeline more robust against the real-world messiness of receipt OCR.
+
+#### 6.1 Default Currency
+- Change the app-wide default currency from `USD` to `UYU`.
+- Keep currency editable per-transaction in `TransactionEntry.tsx`.
+
+#### 6.2 Gemini Prompt Improvements
+The extraction prompt (§3) needs four additions:
+
+| Issue | Prompt fix |
+|---|---|
+| Inconsistent date formats | Explicitly instruct: return `date` as `DD/MM/YYYY`. |
+| Multi-line vendor names | Instruct: `vendor` must be a single clean string with no line breaks. |
+| Discounts (unit price ≠ line total) | Instruct: `unit_price` = shelf price, `item_total_from_ticket` = amount actually charged after any discount. Never recalculate `item_total` from `quantity × unit_price`. |
+| Promotional free items (3×2, etc.) | Instruct: include zero-price items with `unit_price: 0` and `item_total_from_ticket: 0`. Negative-value discount lines should be included as separate items with a negative `item_total_from_ticket`. |
+
+#### 6.3 Date Format Preference & Normalizer Utility
+- New `date_format` column on `profiles`: `text not null default 'DD/MM/YYYY'`. Two allowed values: `'DD/MM/YYYY'` (default, Uruguay/Europe) and `'MM/DD/YYYY'` (US).
+- User selects their preference in `Profile.tsx`. This preference is injected into the Gemini prompt (rule 7: `"date: Fecha en formato ${dateFormat}."`) and passed to the normalizer.
+- `normalizeDate(raw: string, format: 'DD/MM/YYYY' | 'MM/DD/YYYY'): string | null` lives in `src/lib/dateUtils.ts` (client) and is inlined in the Edge Function (Deno).
+- Logic: try ISO `YYYY-MM-DD` first (unambiguous); then slash/dot-separated parts — if the first component is > 12 it must be the day regardless of format preference; otherwise apply the user's format preference; return `null` for anything unparseable.
+- `null` dates map to `NULL` in the DB and surface the transaction in the Review Queue for manual correction.
+
+#### 6.4 Vendor Normalization Table & Fuzzy Matching
+Mirrors the Phase 4 product normalization architecture:
+
+- New `vendors` table: `id`, `group_id`, `canonical_name`, `created_at`. Unique on `(group_id, canonical_name)`.
+- `vendor_aliases` table (or `vendor_id` column on `transactions`): maps raw AI-extracted vendor strings to a canonical vendor.
+- Fuzzy matching thresholds (same philosophy as `fuzzyMatch.ts`):
+  - ≥ 90% → `auto_matched` to canonical vendor
+  - 60–89% → `needs_vendor_review` (surfaced in a vendor audit UI)
+  - < 60% → `new_vendor_candidate`
+- A `VendorAudit.tsx` page (or tab within `ProductAudit.tsx`) for reviewing unmatched vendors.
+- Fixes the "Disco" vs "Supermercados Disco del Uruguay S.A." class of inconsistencies, which directly impacts the Pareto analysis accuracy.
+
+#### 6.5 Discount & Promotion Handling (Schema Clarification)
+- No schema changes needed: `unit_price` and `item_total` are already independent columns.
+- The 1% tolerance rule (§1) explicitly does **not** apply when `item_total ≠ quantity × unit_price` due to a discount — the prompt instructs the AI to capture the actual charged amount.
+- Zero-price promotional items (`item_total = 0`) are valid and must not be rejected by validation logic.
+- The math validation in `process-receipts` must allow `item_total = 0` and skip the tolerance check for that line.
+
+#### 6.6 CSV / Bulk Import Script *(dev tooling only)*
+- A one-off Node/TypeScript script to import the Google Sheets CSV export (used to seed the dev database with real data).
+- Handles: UTF-8 encoding, date normalization, grouping rows into transactions by `(Fecha, Vendedor, Ciudad)`, placeholder `image_url`, currency set to `UYU`, `is_reviewed = true`.
+- Not part of the production app — dev tooling only.
+
 ---
 
 ## 7. Deployment Architecture
