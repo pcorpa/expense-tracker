@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { usePendingAuditCount } from "../lib/usePendingAuditCount";
 import { usePendingInvitationsCount } from "../lib/usePendingInvitationsCount";
+import { usePendingVendorCount } from "../lib/usePendingVendorCount";
 import {
   LogOut,
   Home as HomeIcon,
@@ -14,6 +15,7 @@ import {
   BarChart2,
   ShieldCheck,
   Mail,
+  Store,
 } from "lucide-react";
 
 const links = [
@@ -24,6 +26,7 @@ const links = [
   { to: "/review", label: "Review", icon: CheckCircle2 },
   { to: "/analytics", label: "Analytics", icon: BarChart2 },
   { to: "/product-audit", label: "Product Audit", icon: ShieldCheck, badge: "audit" },
+  { to: "/vendor-audit", label: "Vendor Audit", icon: Store, badge: "vendor" },
   { to: "/invitations", label: "Invitations", icon: Mail, badge: "invitations" },
   { to: "/groups", label: "Groups", icon: Users },
   { to: "/profile", label: "Profile", icon: User },
@@ -34,6 +37,7 @@ export function NavBar() {
   const location = useLocation();
   const { data: pendingCount = 0 } = usePendingAuditCount();
   const { data: invitationsCount = 0 } = usePendingInvitationsCount();
+  const { data: vendorCount = 0 } = usePendingVendorCount();
 
   return (
     <header className="app-shell__nav">
@@ -49,7 +53,7 @@ export function NavBar() {
         {links.map((item) => {
           const Icon = item.icon;
           const active = location.pathname === item.to;
-          const count = item.badge === "audit" ? pendingCount : item.badge === "invitations" ? invitationsCount : 0;
+          const count = item.badge === "audit" ? pendingCount : item.badge === "invitations" ? invitationsCount : item.badge === "vendor" ? vendorCount : 0;
           return (
             <Link key={item.to} to={item.to} className={active ? "active" : ""} style={{ position: "relative" }}>
               <Icon size={18} />

@@ -42,6 +42,52 @@ const responseSchema = {
   required: ['filename', 'date', 'vendor', 'city', 'total_amount', 'currency', 'products'],
 };
 
+// ── Date normalizer (mirrors src/lib/dateUtils.ts) ───────────────────────────
+
+function isValidDate(year: number, month: number, day: number): boolean {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const d = new Date(year, month - 1, day);
+  return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day;
+}
+
+function normalizeDate(raw: string, format: 'DD/MM/YYYY' | 'MM/DD/YYYY'): string | null {
+  if (!raw || raw.trim() === '' || raw.toLowerCase() === 'unknown') return null;
+  raw = raw.trim();
+
+  // ISO YYYY-MM-DD (unambiguous)
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    const [, y, m, d] = iso.map(Number);
+    return isValidDate(y, m, d) ? `${iso[1]}-${iso[2]}-${iso[3]}` : null;
+  }
+
+  // Slash / dot / dash separated: a[sep]b[sep]year
+  const parts = raw.match(/^(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{2,4})$/);
+  if (parts) {
+    const a = +parts[1], b = +parts[2];
+    const rawYear = parts[3];
+    const year = rawYear.length === 2 ? 2000 + +rawYear : +rawYear;
+
+    let day: number, month: number;
+    if (a > 12) {
+      day = a; month = b;
+    } else if (b > 12) {
+      month = a; day = b;
+    } else {
+      if (format === 'DD/MM/YYYY') { day = a; month = b; }
+      else { month = a; day = b; }
+    }
+
+    if (isValidDate(year, month, day)) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  return null;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
@@ -74,7 +120,7 @@ Deno.serve(async (req) => {
     await supabase.from('receipts').update({ status: 'processing' }).eq('id', receiptId);
     console.log('[1/5] DONE update receipt status → processing');
 
-    console.log('[2/5] START fetch receipt row from DB');
+    console.log('[2/5] START fetch receipt row + user date format');
     const { data: receipt, error: receiptError } = await supabase
       .from('receipts')
       .select('id, user_id, group_id, image_url')
@@ -88,7 +134,14 @@ Deno.serve(async (req) => {
         headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       });
     }
-    console.log('[2/5] DONE fetch receipt row');
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('date_format')
+      .eq('id', receipt.user_id)
+      .single();
+    const dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' = profile?.date_format ?? 'DD/MM/YYYY';
+    console.log('[2/5] DONE. date_format:', dateFormat);
 
     const base64Image: string = body.image_data;
     const mimeType: string = body.mime_type || 'image/jpeg';
@@ -97,22 +150,21 @@ Deno.serve(async (req) => {
     const prompt = `Analiza este ticket. Nombre: ${fileName}.
 Categorías permitidas: Comida, Limpieza, Salud, Entretenimiento, Hogar, Transporte, Vestimenta, Restaurante, Cuidado Personal, Mascotas, Servicios, Educación, Tecnología, Otro.
 Reglas:
-1. 'unit_price': Precio unitario.
+1. 'unit_price': Precio unitario (precio de lista, antes de descuentos).
 2. 'quantity': Cantidad o peso.
-3. 'item_total_from_ticket': El precio final de la línea.
-4. Usa 'Unknown' si no es legible.`;
+3. 'item_total_from_ticket': El monto efectivamente cobrado. NUNCA recalcules desde quantity × unit_price.
+4. Ítems gratuitos (3x2, etc.): unit_price con el precio de lista, item_total_from_ticket en 0.
+5. Descuentos globales: incluirlos como ítem separado con item_total_from_ticket negativo.
+6. 'vendor': Nombre del vendedor en una sola línea, sin saltos de línea.
+7. 'date': Fecha en formato ${dateFormat}.
+8. Usa 'Unknown' si no es legible.`;
 
     const payload = {
       contents: [
         {
           parts: [
             { text: prompt },
-            {
-              inline_data: {
-                mime_type: mimeType,
-                data: base64Image,
-              },
-            },
+            { inline_data: { mime_type: mimeType, data: base64Image } },
           ],
         },
       ],
@@ -125,11 +177,7 @@ Reglas:
     console.log('[3/5] START call Gemini API');
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      },
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
     );
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text();
@@ -144,13 +192,17 @@ Reglas:
     const extractedData = JSON.parse(geminiData.candidates[0].content.parts[0].text);
     console.log('[3/5] DONE Gemini API. vendor:', extractedData.vendor, 'products:', extractedData.products?.length);
 
+    // Normalize date using user's format preference
+    const normalizedDate = normalizeDate(extractedData.date ?? '', dateFormat);
+
+    // Header integrity check: item sum vs receipt total (informational only, never blocks insertion)
     const itemSum = extractedData.products.reduce(
       (sum: number, item: any) => sum + (item.item_total_from_ticket ?? 0),
       0,
     );
     const totalAmount = extractedData.total_amount ?? 0;
     const mathWarning =
-      Math.abs(itemSum - totalAmount) > Math.abs(totalAmount) * 0.01
+      totalAmount !== 0 && Math.abs(itemSum - totalAmount) > Math.abs(totalAmount) * 0.01
         ? `Item sum (${itemSum.toFixed(2)}) differs from total (${totalAmount.toFixed(2)}) by more than 1%`
         : null;
 
@@ -167,7 +219,7 @@ Reglas:
           type: 'expense',
           is_reviewed: false,
           vendor_or_source: extractedData.vendor !== 'Unknown' ? extractedData.vendor : null,
-          date: extractedData.date !== 'Unknown' ? extractedData.date : null,
+          date: normalizedDate,
           total_amount: totalAmount,
           currency: extractedData.currency ?? 'UY$',
         },
@@ -184,8 +236,8 @@ Reglas:
       });
     }
 
-    // product_id is intentionally NULL — the client-side normalization pipeline
-    // (fuzzy matching + ProductAudit human review) will assign canonical products.
+    // product_id is intentionally NULL — client-side normalization pipeline assigns canonical products.
+    // item_total may be 0 (promo items) or negative (discount lines) — both are valid.
     const itemsToInsert = extractedData.products.map((product: any) => {
       const name = product.name && product.name !== 'Unknown' ? product.name : null;
       const category = ALLOWED_CATEGORIES.includes(product.category) ? product.category : 'Otro';

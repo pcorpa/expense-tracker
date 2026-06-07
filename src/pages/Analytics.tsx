@@ -18,7 +18,7 @@ import {
 import { Download } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import type { Transaction, TransactionItem } from "../types";
+import type { Transaction, TransactionItem, Vendor } from "../types";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Comida: "#3b82f6",
@@ -77,6 +77,8 @@ export function Analytics() {
   const [profileMap, setProfileMap] = useState<
     Record<string, { first_name: string | null; last_name: string | null; email: string }>
   >({});
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [vendorGrouping, setVendorGrouping] = useState<"canonical" | "raw">("canonical");
   const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
 
@@ -101,7 +103,7 @@ export function Analytics() {
 
     const groupIds = memberships.map((m) => m.group_id);
 
-    const [{ data: txData }, { data: memberRows }] = await Promise.all([
+    const [{ data: txData }, { data: memberRows }, { data: vendorData }] = await Promise.all([
       supabase
         .from("transactions")
         .select("*, transaction_items(*)")
@@ -113,9 +115,14 @@ export function Analytics() {
         .from("group_members")
         .select("user_id")
         .in("group_id", groupIds),
+      supabase
+        .from("vendors")
+        .select("id, group_id, canonical_name, created_at")
+        .in("group_id", groupIds),
     ]);
 
     setTransactions(txData ?? []);
+    setVendors(vendorData ?? []);
 
     // Fetch profiles separately — group_members.user_id → auth.users, not profiles directly
     const userIds = [...new Set((memberRows ?? []).map((m) => m.user_id))];
@@ -315,11 +322,22 @@ export function Analytics() {
   }, [allItems]);
 
   // --- PARETO ---
+  const vendorById = useMemo(() => {
+    const map = new Map<string, Vendor>();
+    for (const v of vendors) map.set(v.id, v);
+    return map;
+  }, [vendors]);
+
   const vendorPareto = useMemo(() => {
     const map: Record<string, number> = {};
     for (const t of transactions) {
-      const vendor = t.vendor_or_source ?? "Unknown";
-      map[vendor] = (map[vendor] ?? 0) + (t.total_amount ?? 0);
+      let label: string;
+      if (vendorGrouping === "canonical" && t.vendor_id) {
+        label = vendorById.get(t.vendor_id)?.canonical_name ?? t.vendor_or_source ?? "Unknown";
+      } else {
+        label = t.vendor_or_source ?? "Unknown";
+      }
+      map[label] = (map[label] ?? 0) + (t.total_amount ?? 0);
     }
     const sorted = Object.entries(map)
       .map(([vendor, total]) => ({ vendor, total: Math.round(total * 100) / 100 }))
@@ -331,7 +349,7 @@ export function Analytics() {
       cumulative += v.total;
       return { ...v, cumPct: Math.round((cumulative / grandTotal) * 100) };
     });
-  }, [transactions]);
+  }, [transactions, vendorGrouping, vendorById]);
 
   // --- GROUPS ---
   const memberSpend = useMemo(() => {
@@ -863,10 +881,34 @@ export function Analytics() {
           {/* ── PARETO ── */}
           {activeTab === "pareto" && (
             <div className="content-block">
-              <h3 className="chart-title">Pareto Analysis — 80/20 Rule</h3>
-              <p className="chart-subtitle">
-                Identify the vendors responsible for the majority of your total spend.
-              </p>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 4 }}>
+                <div>
+                  <h3 className="chart-title" style={{ margin: 0 }}>Pareto Analysis — 80/20 Rule</h3>
+                  <p className="chart-subtitle">
+                    Identify the vendors responsible for the majority of your total spend.
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: 0, borderRadius: 7, overflow: "hidden", border: "1px solid var(--border-color)", flexShrink: 0, alignSelf: "flex-start" }}>
+                  {(["canonical", "raw"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setVendorGrouping(mode)}
+                      style={{
+                        padding: "6px 13px",
+                        fontSize: "0.78rem",
+                        fontWeight: 600,
+                        border: "none",
+                        cursor: "pointer",
+                        background: vendorGrouping === mode ? "var(--color-accent)" : "var(--bg-secondary)",
+                        color: vendorGrouping === mode ? "#fff" : "var(--text-secondary)",
+                        transition: "background 0.15s",
+                      }}
+                    >
+                      {mode === "canonical" ? "Canonical" : "Raw name"}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {vendorPareto.length === 0 ? (
                 <p className="muted">No vendor data available.</p>
               ) : (

@@ -5,6 +5,7 @@ create table if not exists profiles (
   email text not null unique,
   first_name text,
   last_name text,
+  date_format text not null default 'DD/MM/YYYY' check (date_format in ('DD/MM/YYYY', 'MM/DD/YYYY')),
   created_at timestamptz not null default now()
 );
 
@@ -38,6 +39,14 @@ create table if not exists receipts (
 
 create type transaction_type as enum ('income', 'expense');
 
+create table if not exists vendors (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid references groups(id) on delete cascade,
+  canonical_name text not null,
+  created_at timestamptz not null default now(),
+  unique(group_id, canonical_name)
+);
+
 create table if not exists transactions (
   id uuid primary key default gen_random_uuid(),
   receipt_id uuid references receipts(id) on delete set null,
@@ -46,9 +55,11 @@ create table if not exists transactions (
   type transaction_type not null,
   is_reviewed boolean not null default false,
   vendor_or_source text,
+  vendor_id uuid references vendors(id) on delete set null,
+  vendor_mapping_status text check (vendor_mapping_status in ('auto_matched', 'needs_vendor_review', 'new_vendor_candidate')),
   date date,
   total_amount numeric,
-  currency text default 'USD',
+  currency text default 'UY$',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -75,6 +86,8 @@ create table if not exists transaction_items (
 );
 
 create index if not exists group_members_user_id_idx on group_members(user_id);
+create index if not exists vendors_group_id_idx on vendors(group_id);
+create index if not exists transactions_vendor_mapping_status_idx on transactions(vendor_mapping_status);
 create index if not exists products_group_id_idx on products(group_id);
 create index if not exists receipts_group_id_idx on receipts(group_id);
 create index if not exists transactions_group_id_idx on transactions(group_id);
@@ -86,6 +99,7 @@ create index if not exists transaction_items_product_id_idx on transaction_items
 alter table profiles enable row level security;
 alter table groups enable row level security;
 alter table group_members enable row level security;
+alter table vendors enable row level security;
 alter table products enable row level security;
 alter table receipts enable row level security;
 alter table transactions enable row level security;
@@ -139,6 +153,21 @@ create policy group_members_update on group_members for update using (
 );
 create policy group_members_delete on group_members for delete using (
   user_id = auth.uid()
+);
+
+create policy vendors_select on vendors for select using (
+  exists (select 1 from group_members gm where gm.group_id = vendors.group_id and gm.user_id = auth.uid())
+);
+create policy vendors_insert on vendors for insert with check (
+  exists (select 1 from group_members gm where gm.group_id = vendors.group_id and gm.user_id = auth.uid())
+);
+create policy vendors_update on vendors for update using (
+  exists (select 1 from group_members gm where gm.group_id = vendors.group_id and gm.user_id = auth.uid())
+) with check (
+  exists (select 1 from group_members gm where gm.group_id = vendors.group_id and gm.user_id = auth.uid())
+);
+create policy vendors_delete on vendors for delete using (
+  exists (select 1 from group_members gm where gm.group_id = vendors.group_id and gm.user_id = auth.uid())
 );
 
 create policy products_select on products for select using (
@@ -253,6 +282,7 @@ create policy transaction_items_delete on transaction_items for delete using (
 
 -- Role grants (required when tables are created via raw SQL instead of the Supabase dashboard)
 grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on vendors to authenticated;
 grant select, insert, update, delete on profiles to authenticated;
 grant select, insert, update, delete on groups to authenticated;
 grant select, insert, update, delete on group_members to authenticated;

@@ -1,8 +1,11 @@
+export type DateFormat = 'DD/MM/YYYY' | 'MM/DD/YYYY';
+
 export type Profile = {
   id: string;
   email: string;
   first_name: string | null;
   last_name: string | null;
+  date_format: DateFormat;
   created_at: string;
 };
 
@@ -53,6 +56,18 @@ export type MappingStatus =
   | "needs_mapping_review"
   | "new_product_candidate";
 
+export type VendorMappingStatus =
+  | "auto_matched"
+  | "needs_vendor_review"
+  | "new_vendor_candidate";
+
+export type Vendor = {
+  id: string;
+  group_id: string;
+  canonical_name: string;
+  created_at: string;
+};
+
 export type TransactionItem = {
   id: string;
   transaction_id: string;
@@ -75,6 +90,8 @@ export type Transaction = {
   type: TransactionType;
   is_reviewed: boolean;
   vendor_or_source: string | null;
+  vendor_id: string | null;
+  vendor_mapping_status: VendorMappingStatus | null;
   date: string | null;
   total_amount: number | null;
   currency: string;

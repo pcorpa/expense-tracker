@@ -14,9 +14,11 @@ import {
   BarChart2,
   ShieldCheck,
   Mail,
+  Store,
 } from "lucide-react";
 import { usePendingAuditCount } from "../lib/usePendingAuditCount";
 import { usePendingInvitationsCount } from "../lib/usePendingInvitationsCount";
+import { usePendingVendorCount } from "../lib/usePendingVendorCount";
 
 const links = [
   { to: "/", label: "Home", icon: HomeIcon },
@@ -26,6 +28,7 @@ const links = [
   { to: "/review", label: "Review", icon: CheckCircle2 },
   { to: "/analytics", label: "Analytics", icon: BarChart2 },
   { to: "/product-audit", label: "Product Audit", icon: ShieldCheck, badge: "audit" },
+  { to: "/vendor-audit", label: "Vendor Audit", icon: Store, badge: "vendor" },
   { to: "/invitations", label: "Invitations", icon: Mail, badge: "invitations" },
   { to: "/groups", label: "Groups", icon: Users },
   { to: "/profile", label: "Profile", icon: UserIcon },
@@ -42,6 +45,7 @@ export function MobileMenu({
   const [open, setOpen] = useState(false);
   const { data: pendingCount = 0 } = usePendingAuditCount();
   const { data: invitationsCount = 0 } = usePendingInvitationsCount();
+  const { data: vendorCount = 0 } = usePendingVendorCount();
 
   const avatarUrl = user?.user_metadata?.avatar_url;
   const displayName =
@@ -86,6 +90,18 @@ export function MobileMenu({
               {pendingCount > 99 ? "99+" : pendingCount} audit
             </span>
           )}
+          {vendorCount > 0 && (
+            <span style={{
+              background: "#f59e0b",
+              color: "#000",
+              borderRadius: 10,
+              padding: "2px 8px",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+            }}>
+              {vendorCount > 99 ? "99+" : vendorCount} vendor
+            </span>
+          )}
           <button className="mobile-nav__burger" onClick={() => setOpen(true)}>
             <Menu size={28} />
           </button>
@@ -106,7 +122,7 @@ export function MobileMenu({
               {links.map((item) => {
                 const Icon = item.icon;
                 const active = location.pathname === item.to;
-                const count = item.badge === "audit" ? pendingCount : item.badge === "invitations" ? invitationsCount : 0;
+                const count = item.badge === "audit" ? pendingCount : item.badge === "invitations" ? invitationsCount : item.badge === "vendor" ? vendorCount : 0;
                 return (
                   <Link
                     key={item.to}

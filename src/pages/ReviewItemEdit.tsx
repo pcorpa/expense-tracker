@@ -93,15 +93,7 @@ export function ReviewItemEdit() {
     total !== 0;
 
   function field(key: keyof FormState, value: string) {
-    setForm((prev) => {
-      const next = { ...prev, [key]: value };
-      if (key === "quantity" || key === "unit_price") {
-        const qty = Number(key === "quantity" ? value : prev.quantity) || 0;
-        const price = Number(key === "unit_price" ? value : prev.unit_price) || 0;
-        next.item_total = (qty * price).toFixed(2);
-      }
-      return next;
-    });
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   const handleSave = async () => {
@@ -242,7 +234,6 @@ export function ReviewItemEdit() {
                 value={form.item_total}
                 onChange={(e) => field("item_total", e.target.value)}
                 step="0.01"
-                min="0"
               />
             </div>
           </div>
