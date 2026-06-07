@@ -68,6 +68,14 @@ export type Vendor = {
   created_at: string;
 };
 
+export type VendorRawMapping = {
+  id: string;
+  group_id: string;
+  raw_name: string;
+  vendor_id: string;
+  created_at: string;
+};
+
 export type TransactionItem = {
   id: string;
   transaction_id: string;

@@ -19,7 +19,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
 import { runVendorNormalizationPipeline } from "../lib/fuzzyMatchVendor";
-import type { Vendor, VendorMappingStatus } from "../types";
+import type { Vendor, VendorMappingStatus, VendorRawMapping } from "../types";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +71,15 @@ async function fetchAllVendors(): Promise<Vendor[]> {
   return data as Vendor[];
 }
 
+async function fetchRawMappings(): Promise<VendorRawMapping[]> {
+  const { data, error } = await supabase
+    .from("vendor_raw_mappings")
+    .select("id, group_id, raw_name, vendor_id, created_at")
+    .order("raw_name");
+  if (error) return [];
+  return data as VendorRawMapping[];
+}
+
 async function fetchMyGroupRoles(): Promise<Record<string, "admin" | "member">> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return {};
@@ -96,26 +105,49 @@ async function runScan(): Promise<{ scanned: number; autoMatched: number; needsR
   if (txErr) throw txErr;
   if (!rawTxs || rawTxs.length === 0) return { scanned: 0, autoMatched: 0, needsReview: 0, newCandidates: 0 };
 
-  const { data: vendors, error: vendorsErr } = await supabase
-    .from("vendors")
-    .select("id, group_id, canonical_name, created_at");
+  const groupIds = [...new Set(rawTxs.map((t: any) => t.group_id as string))];
+
+  const [{ data: vendors, error: vendorsErr }, { data: rawMappings }] = await Promise.all([
+    supabase.from("vendors").select("id, group_id, canonical_name, created_at"),
+    supabase.from("vendor_raw_mappings").select("group_id, raw_name, vendor_id").in("group_id", groupIds),
+  ]);
   if (vendorsErr) throw vendorsErr;
 
   const allVendors = (vendors ?? []) as Vendor[];
 
-  // Run normalization per group so vendors are scoped correctly
-  const groupIds = [...new Set(rawTxs.map((t: any) => t.group_id))];
-  const results = groupIds.flatMap((gid) => {
-    const groupTxs = rawTxs.filter((t: any) => t.group_id === gid);
-    const groupVendors = allVendors.filter((v) => v.group_id === gid);
-    return runVendorNormalizationPipeline(groupTxs, groupVendors);
-  });
+  // Build a lookup: "groupId|rawNameLower" → vendorId for confirmed mappings
+  const confirmedMap = new Map<string, string>();
+  for (const m of rawMappings ?? []) {
+    confirmedMap.set(`${m.group_id}|${m.raw_name.toLowerCase().trim()}`, m.vendor_id);
+  }
 
   const autoMatchedByVendor = new Map<string, string[]>();
   const reviewByVendor = new Map<string, string[]>();
   const newCandidateIds: string[] = [];
+  const fuzzyTxs: typeof rawTxs = [];
 
-  for (const r of results) {
+  // Step 1: check confirmed mappings first (exact, no fuzzy needed)
+  for (const tx of rawTxs) {
+    const key = `${tx.group_id}|${(tx.vendor_or_source ?? "").toLowerCase().trim()}`;
+    const knownVendorId = confirmedMap.get(key);
+    if (knownVendorId) {
+      const ids = autoMatchedByVendor.get(knownVendorId) ?? [];
+      ids.push(tx.id);
+      autoMatchedByVendor.set(knownVendorId, ids);
+    } else {
+      fuzzyTxs.push(tx);
+    }
+  }
+
+  // Step 2: fuzzy-match the remainder
+  const fuzzyResults = groupIds.flatMap((gid) => {
+    const groupTxs = fuzzyTxs.filter((t: any) => t.group_id === gid);
+    if (!groupTxs.length) return [];
+    const groupVendors = allVendors.filter((v) => v.group_id === gid);
+    return runVendorNormalizationPipeline(groupTxs, groupVendors);
+  });
+
+  for (const r of fuzzyResults) {
     if (r.status === "auto_matched" && r.suggestedVendorId) {
       const ids = autoMatchedByVendor.get(r.suggestedVendorId) ?? [];
       ids.push(r.id);
@@ -158,9 +190,10 @@ async function runScan(): Promise<{ scanned: number; autoMatched: number; needsR
 
   await Promise.all(updates);
 
+  const totalAutoMatched = [...autoMatchedByVendor.values()].reduce((s, ids) => s + ids.length, 0);
   return {
-    scanned: results.length,
-    autoMatched: [...autoMatchedByVendor.values()].reduce((s, ids) => s + ids.length, 0),
+    scanned: rawTxs.length,
+    autoMatched: totalAutoMatched,
     needsReview: [...reviewByVendor.values()].reduce((s, ids) => s + ids.length, 0),
     newCandidates: newCandidateIds.length,
   };
@@ -272,6 +305,7 @@ export function VendorAudit() {
 
   const auditQuery = useQuery({ queryKey: ["vendor-audit-txs"], queryFn: fetchAuditTransactions, retry: false });
   const vendorsQuery = useQuery({ queryKey: ["all-vendors"], queryFn: fetchAllVendors, retry: false });
+  const rawMappingsQuery = useQuery({ queryKey: ["vendor-raw-mappings"], queryFn: fetchRawMappings, retry: false });
   const rolesQuery = useQuery({ queryKey: ["my-group-roles"], queryFn: fetchMyGroupRoles });
 
   const auditError = auditQuery.error as (Error & { code?: string }) | null;
@@ -338,6 +372,7 @@ export function VendorAudit() {
     },
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
+      qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
       toast.success(`"${rawName}" confirmed.`);
     },
@@ -388,6 +423,7 @@ export function VendorAudit() {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
+      qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
       toast.success(existingVendorId ? `Mapped to "${canonicalName}".` : `"${canonicalName}" added to vendor catalog.`);
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
@@ -421,8 +457,23 @@ export function VendorAudit() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
+      qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
       toast.success("Vendor deleted. Affected transactions will re-appear on next scan.");
+    },
+    onError: (err: Error) => toast.error(`Failed: ${err.message}`),
+  });
+
+  // ── delete raw mapping ────────────────────────────────────────────────────
+
+  const deleteMappingMutation = useMutation({
+    mutationFn: async (mappingId: string) => {
+      const { error } = await supabase.rpc("delete_vendor_raw_mapping", { p_mapping_id: mappingId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
+      toast.success("Mapping removed. Transactions with this raw name will re-appear on next scan.");
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
   });
@@ -747,6 +798,50 @@ export function VendorAudit() {
                         </>
                       )}
                     </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ── Confirmed Mappings ───────────────────────────────────────── */}
+      {!isLoading && !isMigrationNeeded && (rawMappingsQuery.data ?? []).length > 0 && (
+        <section style={{ marginTop: 36 }}>
+          <SectionHeader
+            icon={<CheckCircle2 size={16} />}
+            title="Confirmed Mappings"
+            subtitle="Raw vendor names permanently linked to canonical vendors. Future scans skip the review queue for these."
+            color="var(--color-success)"
+          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(rawMappingsQuery.data ?? []).map((mapping) => {
+              const vendor = vendorsById.get(mapping.vendor_id);
+              const isAdmin = isAdminOf(mapping.group_id);
+              return (
+                <div key={mapping.id} style={{ ...cardStyle, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <Tag size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: "0.83rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={mapping.raw_name}>
+                    {mapping.raw_name}
+                  </span>
+                  <ArrowRightLeft size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: "0.83rem", fontWeight: 600, color: "var(--color-success)", flexShrink: 0 }}>
+                    {vendor?.canonical_name ?? "Unknown vendor"}
+                  </span>
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        if (confirm(`Remove mapping "${mapping.raw_name}" → "${vendor?.canonical_name}"?\nTransactions with this raw name will re-appear in the audit queue on next scan.`)) {
+                          deleteMappingMutation.mutate(mapping.id);
+                        }
+                      }}
+                      disabled={deleteMappingMutation.isPending}
+                      style={{ ...ghostBtn, padding: "4px 8px", color: "var(--color-danger)", borderColor: "rgba(248,113,113,0.3)", flexShrink: 0 }}
+                      title="Remove mapping"
+                    >
+                      <X size={13} />
+                    </button>
                   )}
                 </div>
               );
