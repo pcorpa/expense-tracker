@@ -83,13 +83,16 @@ export function TransactionEntry() {
     const fetchUserGroups = async () => {
       const { data } = await supabase
         .from("group_members")
-        .select(`groups (id, name)`)
+        .select(`groups (id, name, is_personal)`)
         .eq("user_id", user.id);
       const userGroups = (data ?? [])
         .map((item: any) => item.groups)
         .filter(Boolean) as Group[];
-      setGroups(userGroups);
-      if (userGroups.length > 0) setGroupId(userGroups[0].id);
+      const sorted = [...userGroups].sort((a, b) =>
+        a.is_personal === b.is_personal ? 0 : a.is_personal ? -1 : 1
+      );
+      setGroups(sorted);
+      if (sorted.length > 0) setGroupId(sorted[0].id);
     };
     fetchUserGroups();
   }, [user]);
@@ -300,7 +303,7 @@ export function TransactionEntry() {
             >
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>
-                  {g.name}
+                  {g.is_personal ? "Personal (just me)" : g.name}
                 </option>
               ))}
             </select>

@@ -16,8 +16,14 @@ A mobile-first, AI-powered expense tracker with receipt scanning, group manageme
 - **Review queue** — every AI-extracted transaction lands in a review queue; edit and approve to promote to master data (`is_reviewed = true`)
 - **Analytics** — 7 tabs: Overview (KPIs + pie + bar), Trends (daily + 7/30-day moving averages), Products (inflation index), Anomalies (z-score > 2), Pareto (80/20), Groups (member contribution), Export (CSV + JSON)
 - **Product normalization** — fuzzy-matching pipeline maps item names to a shared product catalog; unmatched items surface in the Product Audit page for manual review
+- **Vendor normalization** — two-stage pipeline maps raw vendor names (e.g. "Supermercados Disco del Uruguay S.A.") to canonical group vendors (e.g. "Disco"): first checks persistent confirmed mappings (O(1) exact match), then falls back to Fuse.js fuzzy matching + 5-char token overlap; unmatched vendors surface in the Vendor Audit page
+- **Vendor Audit page** — review queue for vendor candidates; combobox autocomplete uses token overlap so "Supermercados Disco…" already shows "Disco" as a suggestion; expandable transaction rows with receipt image lightbox; admin-only approve/confirm/rename/delete actions
+- **Persistent vendor mappings** — confirmed raw→canonical decisions are stored in `vendor_raw_mappings`; future scans auto-match the same raw name without manual review; admins can view and delete mappings from the Confirmed Mappings section
+- **Vendor catalog** — group-scoped canonical vendor list; admins can inline-rename or delete vendors; deleting a vendor resets affected transactions back to the scan queue
+- **Analytics vendor grouping** — Pareto tab supports a "Canonical / Raw name" toggle to compare spend by normalised vendor vs. original raw strings from receipts
 - **Group management** — create groups, invite members by email; invitees receive a Supabase auth email (new users) or see the invitation in-app (existing users)
 - **In-app invitations** — pending invitations shown with Accept/Decline UI; accepting automatically joins the group
+- **Admin gating** — only group admins can add, edit, or delete vendors and vendor mappings; members have read-only access
 - **14-category taxonomy** — fixed set of categories for consistent analytics (see requirements doc)
 - **1% math tolerance** — item totals and receipt totals validated before approval
 - **Auth** — email/password and Google SSO via Supabase Auth
@@ -54,8 +60,9 @@ src/
     ExpenseList.tsx            browsable expense history
     GroupManager.tsx           group creation and member invitations
     Invitations.tsx            pending invitations with Accept/Decline UI
-    Analytics.tsx              7-tab analytics dashboard (Recharts)
+    Analytics.tsx              7-tab analytics dashboard (Recharts); Pareto tab has canonical/raw vendor toggle
     ProductAudit.tsx           fuzzy-match review — map item names to product catalog
+    VendorAudit.tsx            vendor normalization — review queue, vendor catalog, confirmed mappings
     Profile.tsx                user profile
 
   components/
@@ -67,8 +74,10 @@ src/
   lib/
     supabase.ts                Supabase client
     auth.tsx                   auth state context
-    fuzzyMatch.ts              Fuse.js fuzzy matching + normalization pipeline
+    fuzzyMatch.ts              Fuse.js fuzzy matching + normalization pipeline (product items)
+    fuzzyMatchVendor.ts        vendor matching — Fuse.js + 5-char token overlap fallback
     usePendingAuditCount.ts    TanStack Query hook — pending product audit count
+    usePendingVendorAuditCount.ts  TanStack Query hook — pending vendor audit count
     usePendingInvitationsCount.ts  TanStack Query hook — pending invitations count
 
   types.ts                    canonical TypeScript types
@@ -87,6 +96,10 @@ supabase/
     0009_fix_product_rpc_no_group_id.sql
     0010_fix_invitations_rls.sql
     0011_fix_invitations_rls_jwt.sql  RLS uses auth.jwt() ->> 'email' for invited_email matching
+    0012–0015                   vendor normalization columns, RPCs (approve_vendor_mapping, confirm_vendor_match), and Fuse.js scan pipeline
+    0016_vendor_admin_controls.sql  admin-only vendor RLS + rename_vendor / delete_vendor RPCs
+    0017_receipts_storage_policies.sql  private receipts bucket creation + user-scoped storage RLS
+    0018_vendor_raw_mappings.sql  vendor_raw_mappings table + updated RPCs to persist confirmed mappings
   functions/
     process-receipts/         receipt_id + image_data → Gemini 2.5 Flash → transactions + items + products
     send-invitation/          saves invitation to DB + calls inviteUserByEmail for new users
@@ -165,17 +178,7 @@ supabase db push
 
 ### 4. Storage
 
-Create a private Storage bucket named `receipts` in the Supabase dashboard, then run in the SQL editor:
-
-```sql
-CREATE POLICY "Authenticated users can upload receipts"
-ON storage.objects FOR INSERT TO authenticated
-WITH CHECK (bucket_id = 'receipts');
-
-CREATE POLICY "Authenticated users can read receipts"
-ON storage.objects FOR SELECT TO authenticated
-USING (bucket_id = 'receipts');
-```
+Migration `0017_receipts_storage_policies.sql` automatically creates the private `receipts` bucket and scoped RLS policies when you run `supabase db push`. No manual dashboard steps required.
 
 ### 5. Google OAuth
 
@@ -222,3 +225,4 @@ These rules are enforced throughout and must not be relaxed:
 | Phase 3 — Analytics dashboard (7 tabs, Recharts) | Complete |
 | Phase 4 — Product normalization pipeline (fuzzy matching, ProductAudit) | Complete |
 | Phase 5 — Groups, invitations, in-app notification | Complete |
+| Phase 6 — Vendor normalization (fuzzy matching, VendorAudit, persistent mappings, admin controls) | Complete |

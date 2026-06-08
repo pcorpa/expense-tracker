@@ -616,6 +616,13 @@ textarea:focus {
   margin-bottom: 0;
 }
 
+.ticket-card__header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .ticket-card__header > div:first-child {
   display: flex;
   flex-direction: column;
@@ -654,6 +661,177 @@ textarea:focus {
 
 /* Profile Card */
 .profile-card { max-width: 600px; }
+
+/* --- TRANSACTION FILTERS --- */
+.tx-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.tx-search {
+  flex: 1;
+  min-width: 160px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 13px;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.tx-search::placeholder { color: var(--text-muted); }
+
+.tx-search:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+.tx-filter-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.tx-filter-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  border-radius: 99px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.tx-filter-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tx-filter-btn--active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.tx-filter-btn--active:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: #fff;
+}
+
+.tx-sort-select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+.tx-sort-select:focus { border-color: var(--color-accent); }
+
+/* --- TRANSACTION TYPE BADGE --- */
+.tx-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tx-badge--expense {
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
+}
+
+.tx-badge--income {
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+}
+
+/* --- TRANSACTION AMOUNT COLORS --- */
+.tx-amount { font-size: 0.97rem; font-weight: 700; }
+.tx-amount--income  { color: var(--color-success); }
+.tx-amount--expense { color: var(--text-primary); }
+
+/* --- DATE RANGE BUTTON --- */
+.tx-date-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.tx-date-btn:hover { color: var(--text-primary); border-color: var(--color-accent); }
+.tx-date-btn--active { color: var(--text-primary); border-color: var(--color-accent); }
+
+/* --- DATE PICKER MODAL --- */
+.date-picker-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.date-picker-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 20px 24px 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.date-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* react-day-picker v10 dark theme overrides (scoped to .rdp-root) */
+.rdp-root {
+  --rdp-accent-color: var(--color-accent);
+  --rdp-accent-background-color: var(--color-accent-subtle);
+  --rdp-range_middle-background-color: var(--color-accent-subtle);
+  --rdp-range_start-color: #fff;
+  --rdp-range_end-color: #fff;
+  --rdp-range_start-date-background-color: var(--color-accent);
+  --rdp-range_end-date-background-color: var(--color-accent);
+  --rdp-today-color: var(--color-accent);
+  color: var(--text-primary);
+}
+
+.rdp-month_caption,
+.rdp-caption_label,
+.rdp-weekday { color: var(--text-secondary); }
+
+.rdp-day_button { color: var(--text-primary); }
+.rdp-day_button:hover:not(:disabled) { background: var(--bg-hover); }
 
 /* --- ITEM ROW BUTTONS (clickable in review) --- */
 .item-row-btn {

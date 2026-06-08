@@ -18,16 +18,16 @@ export function GroupManager() {
 
     supabase
       .from("group_members")
-      .select("group_id(id,name),role")
+      .select("group_id(id,name,is_personal),role")
       .then(({ data, error }) => {
         if (error) {
           setStatus(error.message);
           return;
         }
 
-        const loadedGroups = (data ?? []).map(
-          (item: any) => item.group_id as Group,
-        );
+        const loadedGroups = (data ?? [])
+          .map((item: any) => item.group_id as Group)
+          .filter((g: Group) => !g.is_personal);
         setGroups(loadedGroups);
       });
   }, [user]);
@@ -69,7 +69,7 @@ export function GroupManager() {
 
     setGroups((current) => [
       ...current,
-      { id: groupId, name: name.trim(), created_at: new Date().toISOString() },
+      { id: groupId, name: name.trim(), is_personal: false, created_at: new Date().toISOString() },
     ]);
     setName("");
     setStatus("Group created successfully.");

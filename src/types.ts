@@ -12,6 +12,7 @@ export type Profile = {
 export type Group = {
   id: string;
   name: string;
+  is_personal: boolean;
   created_at: string;
 };
 

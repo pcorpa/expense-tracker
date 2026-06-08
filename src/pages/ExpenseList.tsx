@@ -1,25 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { DayPicker } from "react-day-picker";
+import type { DateRange } from "react-day-picker";
+import { format } from "date-fns";
+import "react-day-picker/style.css";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import type { Transaction } from "../types";
+import type { Group, Transaction } from "../types";
 
 export function ExpenseList() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "expense" | "income">("all");
+  const [groupFilter, setGroupFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<"date" | "amount">("date");
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
     if (!user) return;
 
     setLoading(true);
 
-    // First get user's groups
     supabase
       .from("group_members")
-      .select("group_id")
+      .select("group_id, groups(id, name)")
       .eq("user_id", user.id)
       .then(({ data: memberships, error: membershipError }) => {
         if (membershipError || !memberships || memberships.length === 0) {
@@ -28,7 +39,12 @@ export function ExpenseList() {
           return;
         }
 
-        const groupIds = memberships.map((m) => m.group_id);
+        const resolvedGroups = (memberships ?? [])
+          .map((m: any) => m.groups)
+          .filter(Boolean) as Group[];
+        setGroups(resolvedGroups);
+
+        const groupIds = memberships.map((m: any) => m.group_id);
 
         supabase
           .from("transactions")
@@ -46,6 +62,48 @@ export function ExpenseList() {
       });
   }, [user]);
 
+  const filtered = useMemo(() => {
+    let result = transactions;
+
+    if (typeFilter !== "all") {
+      result = result.filter((t) => t.type === typeFilter);
+    }
+
+    if (groupFilter !== "all") {
+      result = result.filter((t) => t.group_id === groupFilter);
+    }
+
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      result = result.filter((t) =>
+        (t.vendor_or_source ?? "").toLowerCase().includes(q)
+      );
+    }
+
+    if (dateRange?.from) {
+      const from = dateRange.from.toISOString().split("T")[0];
+      result = result.filter((t) => t.date && t.date >= from);
+    }
+    if (dateRange?.to) {
+      const to = dateRange.to.toISOString().split("T")[0];
+      result = result.filter((t) => t.date && t.date <= to);
+    }
+
+    if (sortBy === "amount") {
+      result = [...result].sort(
+        (a, b) => (b.total_amount ?? 0) - (a.total_amount ?? 0)
+      );
+    }
+
+    return result;
+  }, [transactions, typeFilter, groupFilter, search, dateRange, sortBy]);
+
+  const dateLabel = dateRange?.from
+    ? `${format(dateRange.from, "MMM d")}${dateRange.to ? ` – ${format(dateRange.to, "MMM d")}` : ""}`
+    : "Date range";
+
+  const hasDateFilter = !!dateRange?.from;
+
   return (
     <main className="page">
       <div className="page__header">
@@ -59,12 +117,64 @@ export function ExpenseList() {
       <div className="content-block">
         {loading && <p>Loading transactions…</p>}
         {error && <div className="alert">{error}</div>}
-        {!loading && !transactions.length && (
-          <p>No transactions were found yet.</p>
+
+        {!loading && (
+          <div className="tx-filters">
+            <input
+              type="text"
+              className="tx-search"
+              placeholder="Search by vendor…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <div className="tx-filter-btns">
+              {(["all", "expense", "income"] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  className={`tx-filter-btn${typeFilter === f ? " tx-filter-btn--active" : ""}`}
+                  onClick={() => setTypeFilter(f)}
+                >
+                  {f === "all" ? "All" : f === "expense" ? "Expenses" : "Income"}
+                </button>
+              ))}
+            </div>
+            <select
+              className="tx-sort-select"
+              value={groupFilter}
+              onChange={(e) => setGroupFilter(e.target.value)}
+            >
+              <option value="all">All groups</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={`tx-date-btn${hasDateFilter ? " tx-date-btn--active" : ""}`}
+              onClick={() => setShowDatePicker(true)}
+            >
+              {dateLabel}
+            </button>
+            <select
+              className="tx-sort-select"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as "date" | "amount")}
+            >
+              <option value="date">Date (newest)</option>
+              <option value="amount">Amount (highest)</option>
+            </select>
+          </div>
         )}
 
-        <div className="table-wrapper">
-          {transactions.map((transaction) => (
+        {!loading && !filtered.length && (
+          <p>No transactions match your filters.</p>
+        )}
+
+        <div className="ticket-list">
+          {filtered.map((transaction) => (
             <article key={transaction.id} className="ticket-card">
               <div className="ticket-card__header">
                 <div>
@@ -73,9 +183,11 @@ export function ExpenseList() {
                   </strong>
                   <span>{transaction.date ?? "No date"}</span>
                 </div>
-                <div>
-                  <span>{transaction.type.toUpperCase()}</span>
-                  <strong>
+                <div className="ticket-card__header-right">
+                  <span className={`tx-badge tx-badge--${transaction.type}`}>
+                    {transaction.type === "expense" ? "Expense" : "Income"}
+                  </span>
+                  <strong className={`tx-amount tx-amount--${transaction.type}`}>
                     ${transaction.total_amount?.toFixed(2) ?? "0.00"}
                   </strong>
                 </div>
@@ -122,6 +234,41 @@ export function ExpenseList() {
           ))}
         </div>
       </div>
+
+      {showDatePicker && (
+        <div
+          className="date-picker-overlay"
+          onClick={() => setShowDatePicker(false)}
+        >
+          <div
+            className="date-picker-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <DayPicker
+              mode="range"
+              selected={dateRange}
+              onSelect={setDateRange}
+              disabled={{ after: new Date() }}
+            />
+            <div className="date-picker-actions">
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setDateRange(undefined)}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setShowDatePicker(false)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
