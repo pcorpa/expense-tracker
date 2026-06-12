@@ -22,6 +22,9 @@ import { Analytics } from "./pages/Analytics";
 import { ProductAudit } from "./pages/ProductAudit";
 import { VendorAudit } from "./pages/VendorAudit";
 import { Invitations } from "./pages/Invitations";
+import { RecurringExpenses } from "./pages/RecurringExpenses";
+import { AddRecurringExpense } from "./pages/AddRecurringExpense";
+import { EditRecurringExpense } from "./pages/EditRecurringExpense";
 import "./App.css";
 
 const queryClient = new QueryClient();
@@ -138,6 +141,30 @@ function AppShell() {
             element={
               <ProtectedRoute>
                 <Invitations />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/recurring"
+            element={
+              <ProtectedRoute>
+                <RecurringExpenses />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/recurring/new"
+            element={
+              <ProtectedRoute>
+                <AddRecurringExpense />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/recurring/:id/edit"
+            element={
+              <ProtectedRoute>
+                <EditRecurringExpense />
               </ProtectedRoute>
             }
           />

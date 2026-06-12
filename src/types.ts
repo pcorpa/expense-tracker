@@ -104,8 +104,44 @@ export type Transaction = {
   date: string | null;
   total_amount: number | null;
   currency: string;
+  recurring_expense_id: string | null;
+  installment_number: number | null;
   transaction_items?: TransactionItem[];
   receipts?: Pick<Receipt, "raw_ocr_json" | "status">;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RecurringExpenseType = "subscription" | "installment" | "periodic_bill";
+export type RecurringFrequency =
+  | "weekly"
+  | "biweekly"
+  | "monthly"
+  | "bimonthly"
+  | "quarterly"
+  | "every4months"
+  | "every6months"
+  | "annual";
+
+export type RecurringExpense = {
+  id: string;
+  group_id: string;
+  user_id: string;
+  name: string;
+  vendor_id: string | null;
+  vendor_name: string | null;
+  type: RecurringExpenseType;
+  category: string;
+  currency: string;
+  amount: number;
+  total_purchase_amount: number | null;
+  total_installments: number | null;
+  frequency: RecurringFrequency;
+  start_date: string;
+  end_date: string | null;
+  is_active: boolean;
+  last_generated_date: string | null;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 };

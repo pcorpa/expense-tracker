@@ -1412,6 +1412,219 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+/* --- RECURRING EXPENSES --- */
+
+/* Spinner animation (used for loading states) */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Active pulse dot */
+.active-pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success);
+  flex-shrink: 0;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* KPI row — 3-up summary cards at top of /recurring */
+.recurring-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+/* Recurring card — base */
+.recurring-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid transparent;
+  border-radius: 12px;
+  padding: 18px 22px;
+  transition: border-color 0.15s, background 0.15s;
+  animation: fadeInUp 0.35s ease-out both;
+}
+
+.recurring-card:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
+}
+
+/* Type-colored left border accent */
+.recurring-card--subscription  { border-left-color: #818cf8; }
+.recurring-card--installment   { border-left-color: #f59e0b; }
+.recurring-card--periodic_bill { border-left-color: #34d399; }
+.recurring-card--inactive      { opacity: 0.55; }
+
+/* Type badges */
+.recurring-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.recurring-type-badge--subscription {
+  background: rgba(129, 140, 248, 0.12);
+  color: #818cf8;
+}
+
+.recurring-type-badge--installment {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+}
+
+.recurring-type-badge--periodic_bill {
+  background: rgba(52, 211, 153, 0.10);
+  color: #34d399;
+}
+
+/* Frequency / date chips */
+.frequency-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+/* Installment progress */
+.recurring-progress {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.recurring-progress__bar {
+  height: 4px;
+  background: var(--bg-hover);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.recurring-progress__fill {
+  height: 100%;
+  background: #f59e0b;
+  border-radius: 99px;
+  transition: width 0.6s ease;
+}
+
+/* Section title inside content-block */
+.recurring-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+/* Card list */
+.recurring-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Empty state */
+.recurring-empty {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+}
+
+/* Type tile selector (Add/Edit form) */
+.recurring-type-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.recurring-type-tile {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: all 0.12s;
+  user-select: none;
+}
+
+.recurring-type-tile:hover {
+  background: var(--bg-hover);
+}
+
+.recurring-type-tile--active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+/* Retroactive note */
+.recurring-retro-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.79rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Delete confirmation dialog */
+.delete-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.delete-dialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 28px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  animation: fadeInUp 0.2s ease-out;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .recurring-kpi-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .recurring-type-grid { grid-template-columns: 1fr; }
+}
+
 /* Analytics responsive */
 @media (max-width: 900px) {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
