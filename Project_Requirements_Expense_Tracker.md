@@ -66,10 +66,13 @@ The database is normalized in Supabase Postgres to allow accurate time-series an
 | `groups` | `id`, `name`, `created_at` | Top-level grouping entity. |
 | `group_members` | `group_id`, `user_id`, `role` (`admin`/`member`), `created_at` | Junction table. RLS: users see only their own memberships. |
 | `receipts` | `id`, `user_id`, `group_id`, `image_url`, `status` (enum), `raw_ocr_json`, `city`, `created_at` | Status: `pending`, `processing`, `needs_review`, `completed`, `error`. |
-| `transactions` | `id`, `receipt_id`, `user_id`, `group_id`, `type`, `is_reviewed`, `vendor_or_source`, `date`, `total_amount`, `currency` | `is_reviewed = true` = master data. |
+| `transactions` | `id`, `receipt_id`, `user_id`, `group_id`, `type`, `is_reviewed`, `vendor_or_source`, `vendor_id`, `vendor_mapping_status`, `date`, `total_amount`, `currency`, `recurring_expense_id`, `installment_number` | `is_reviewed = true` = master data. `recurring_expense_id` links auto-generated transactions to their template. |
 | `transaction_items` | `id`, `transaction_id`, `name`, `category`, `product_id`, `quantity`, `unit_price`, `item_total`, `mapping_status`, `suggested_product_id` | `mapping_status`: `auto_matched`, `needs_mapping_review`, `new_product_candidate`. |
 | `products` | `id`, `group_id`, `name`, `category`, `created_at` | Shared product catalog. Unique on `(group_id, name)`. |
+| `vendors` | `id`, `group_id`, `canonical_name`, `created_at` | Canonical vendor list per group. Unique on `(group_id, canonical_name)`. |
+| `vendor_raw_mappings` | `id`, `group_id`, `raw_name`, `vendor_id`, `created_at` | Persistent raw→canonical mappings. Unique on `(group_id, raw_name)`. |
 | `invitations` | `id`, `group_id`, `invited_email`, `invited_by`, `status` (`pending`/`accepted`/`declined`), `created_at`, `updated_at` | RLS uses `auth.jwt() ->> 'email'` for `invited_email` matching (not `auth.users` subquery). |
+| `recurring_expenses` | `id`, `group_id`, `user_id`, `name`, `vendor_name`, `type` (`subscription`/`installment`/`periodic_bill`), `category`, `currency`, `amount`, `total_purchase_amount`, `total_installments`, `frequency`, `start_date`, `end_date`, `is_active`, `last_generated_date`, `notes` | Templates for auto-generating transactions. `last_generated_date` is the watermark used to avoid duplicate generation. |
 
 ### RLS notes
 
@@ -148,7 +151,7 @@ The database is normalized in Supabase Postgres to allow accurate time-series an
 - `usePendingInvitationsCount` hook — badge count in NavBar/MobileMenu
 - NavBar and MobileMenu updated with Invitations link and blue badge
 
-### Phase 6 — Data Pipeline Quality & Vendor Normalization 🔲 Planned
+### Phase 6 — Data Pipeline Quality & Vendor Normalization ✅ Complete
 
 Driven by analysis of real receipt data (Uruguayan supermarkets, May–June 2026). The goal is to make the AI ingestion pipeline more robust against the real-world messiness of receipt OCR.
 
@@ -195,6 +198,58 @@ Mirrors the Phase 4 product normalization architecture:
 - A one-off Node/TypeScript script to import the Google Sheets CSV export (used to seed the dev database with real data).
 - Handles: UTF-8 encoding, date normalization, grouping rows into transactions by `(Fecha, Vendedor, Ciudad)`, placeholder `image_url`, currency set to `UYU`, `is_reviewed = true`.
 - Not part of the production app — dev tooling only.
+
+### Phase 7 — Recurring Expenses ✅ Complete
+
+Enables users to register fixed recurring costs once and have the app auto-generate approved transactions on their due dates.
+
+#### 7.1 Three recurring expense types
+
+| Type | Description | Key fields |
+|---|---|---|
+| `subscription` | Fixed amount, indefinite (Netflix, Spotify, gym) | `amount`, `frequency` |
+| `installment` | Credit card purchase split across N periods | `total_purchase_amount`, `total_installments`, `frequency` |
+| `periodic_bill` | Regular bill with an optionally variable amount (electricity, water) | `amount` as reference, `frequency` |
+
+#### 7.2 Supported frequencies
+
+`weekly`, `biweekly`, `monthly`, `bimonthly`, `quarterly`, `every4months`, `every6months`, `annual`
+
+#### 7.3 Auto-generation logic (`src/lib/recurringExpenses.ts`)
+
+Client-side generation triggered when the user opens `/recurring`. Idempotent — uses `last_generated_date` as a watermark to avoid duplicates:
+
+1. Start one period after `last_generated_date` (or at `start_date` if never generated)
+2. Walk forward by `frequency` until today or `end_date`, whichever comes first
+3. For installments: also stop when `total_installments` is reached
+4. For each due date: insert one `transaction` (`is_reviewed: true`, `recurring_expense_id`, `installment_number`) + one `transaction_item`
+5. Update `last_generated_date` on the template
+6. If installment plan is complete: set `is_active = false`, `end_date = last due date`
+
+Generated transactions appear in the expense list and analytics for their respective months automatically — no extra filtering logic needed.
+
+#### 7.4 Installment tracking
+
+- User enters `total_purchase_amount` + `total_installments`; the app derives `amount = total / installments`
+- Each generated transaction stores `installment_number` (e.g. 3 of 12)
+- The `/recurring` page shows a progress bar with paid count, percentage, and amount paid vs. total
+
+#### 7.5 Lifecycle management
+
+- **Cancel**: sets `is_active = false`, `end_date = today`; past transactions are preserved
+- **Edit**: updates the template; does not retroactively modify already-generated transactions
+- **Delete template only**: removes the template; linked transactions remain as standalone expenses (`recurring_expense_id` nulled via `ON DELETE SET NULL`)
+- **Delete all**: removes template + all linked transactions and their items
+
+#### 7.6 New pages
+
+- `RecurringExpenses.tsx` (`/recurring`) — list with KPI summary row (monthly fixed total, active count, installments in progress), type-colored cards with left border accent, installment progress bars, collapsible inactive section
+- `AddRecurringExpense.tsx` (`/recurring/new`) — visual tile type selector, live installment calculator, retroactive count note when start date is in the past
+- `EditRecurringExpense.tsx` (`/recurring/:id/edit`) — edit form with inline cancel confirmation and a delete dialog offering two options (template only vs. all)
+
+#### 7.7 Migration
+
+`0020_recurring_expenses.sql` — creates `recurring_expenses` table with full RLS (mirrors `transactions` group membership policies) and adds `recurring_expense_id` + `installment_number` to `transactions`.
 
 ---
 

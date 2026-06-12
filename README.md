@@ -24,6 +24,7 @@ A mobile-first, AI-powered expense tracker with receipt scanning, group manageme
 - **Group management** — create groups, invite members by email; invitees receive a Supabase auth email (new users) or see the invitation in-app (existing users)
 - **In-app invitations** — pending invitations shown with Accept/Decline UI; accepting automatically joins the group
 - **Admin gating** — only group admins can add, edit, or delete vendors and vendor mappings; members have read-only access
+- **Recurring expenses** — register subscriptions (Netflix, gym), installment plans (credit card purchases split across N months), and periodic bills (electricity, water); each template auto-generates approved transactions on their due dates when the Recurrentes page is opened; installment cards show a live progress bar (e.g. "5/12 cuotas — 42%") and auto-complete when all installments are paid; cancel, edit, or delete (template only or template + all linked transactions)
 - **14-category taxonomy** — fixed set of categories for consistent analytics (see requirements doc)
 - **1% math tolerance** — item totals and receipt totals validated before approval
 - **Auth** — email/password and Google SSO via Supabase Auth
@@ -63,6 +64,9 @@ src/
     Analytics.tsx              7-tab analytics dashboard (Recharts); Pareto tab has canonical/raw vendor toggle
     ProductAudit.tsx           fuzzy-match review — map item names to product catalog
     VendorAudit.tsx            vendor normalization — review queue, vendor catalog, confirmed mappings
+    RecurringExpenses.tsx      recurring expense list with KPIs, type-colored cards, installment progress
+    AddRecurringExpense.tsx    create subscriptions, installment plans, and periodic bills
+    EditRecurringExpense.tsx   edit, cancel, or delete recurring expenses
     Profile.tsx                user profile
 
   components/
@@ -76,6 +80,7 @@ src/
     auth.tsx                   auth state context
     fuzzyMatch.ts              Fuse.js fuzzy matching + normalization pipeline (product items)
     fuzzyMatchVendor.ts        vendor matching — Fuse.js + 5-char token overlap fallback
+    recurringExpenses.ts       client-side generation logic for recurring expense templates
     usePendingAuditCount.ts    TanStack Query hook — pending product audit count
     usePendingVendorAuditCount.ts  TanStack Query hook — pending vendor audit count
     usePendingInvitationsCount.ts  TanStack Query hook — pending invitations count
@@ -100,6 +105,8 @@ supabase/
     0016_vendor_admin_controls.sql  admin-only vendor RLS + rename_vendor / delete_vendor RPCs
     0017_receipts_storage_policies.sql  private receipts bucket creation + user-scoped storage RLS
     0018_vendor_raw_mappings.sql  vendor_raw_mappings table + updated RPCs to persist confirmed mappings
+    0019_personal_groups.sql      is_personal flag on groups + trigger to auto-create personal group on signup
+    0020_recurring_expenses.sql   recurring_expenses table + recurring_expense_id / installment_number on transactions
   functions/
     process-receipts/         receipt_id + image_data → Gemini 2.5 Flash → transactions + items + products
     send-invitation/          saves invitation to DB + calls inviteUserByEmail for new users
@@ -226,3 +233,4 @@ These rules are enforced throughout and must not be relaxed:
 | Phase 4 — Product normalization pipeline (fuzzy matching, ProductAudit) | Complete |
 | Phase 5 — Groups, invitations, in-app notification | Complete |
 | Phase 6 — Vendor normalization (fuzzy matching, VendorAudit, persistent mappings, admin controls) | Complete |
+| Phase 7 — Recurring expenses (subscriptions, installments, periodic bills; auto-generation; cancel/delete) | Complete |
