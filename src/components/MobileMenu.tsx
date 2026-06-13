@@ -16,6 +16,7 @@ import {
   Mail,
   Store,
   Repeat,
+  ShoppingCart,
 } from "lucide-react";
 import { usePendingAuditCount } from "../lib/usePendingAuditCount";
 import { usePendingInvitationsCount } from "../lib/usePendingInvitationsCount";
@@ -28,6 +29,7 @@ const links = [
   { to: "/transactions", label: "Transactions", icon: ClipboardList },
   { to: "/review", label: "Review", icon: CheckCircle2 },
   { to: "/recurring", label: "Recurrentes", icon: Repeat },
+  { to: "/shopping-list", label: "Lista Compras", icon: ShoppingCart },
   { to: "/analytics", label: "Analytics", icon: BarChart2 },
   { to: "/product-audit", label: "Product Audit", icon: ShieldCheck, badge: "audit" },
   { to: "/vendor-audit", label: "Vendor Audit", icon: Store, badge: "vendor" },

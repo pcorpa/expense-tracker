@@ -25,6 +25,7 @@ import { Invitations } from "./pages/Invitations";
 import { RecurringExpenses } from "./pages/RecurringExpenses";
 import { AddRecurringExpense } from "./pages/AddRecurringExpense";
 import { EditRecurringExpense } from "./pages/EditRecurringExpense";
+import { ShoppingList } from "./pages/ShoppingList";
 import "./App.css";
 
 const queryClient = new QueryClient();
@@ -165,6 +166,14 @@ function AppShell() {
             element={
               <ProtectedRoute>
                 <EditRecurringExpense />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/shopping-list"
+            element={
+              <ProtectedRoute>
+                <ShoppingList />
               </ProtectedRoute>
             }
           />
