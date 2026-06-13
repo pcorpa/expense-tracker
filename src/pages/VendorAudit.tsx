@@ -33,6 +33,7 @@ type AuditTransaction = {
   total_amount: number | null;
   currency: string;
   receipt_image_path: string | null;
+  _similarity?: number;
 };
 
 type Cluster = {
@@ -42,6 +43,7 @@ type Cluster = {
   transactions: AuditTransaction[];
   suggestedVendorId: string | null;
   canonicalName: string;
+  similarity?: number;
 };
 
 // ─── data fetchers ────────────────────────────────────────────────────────────
@@ -333,16 +335,20 @@ export function VendorAudit() {
 
     // Group by group_id so normalization is scoped correctly
     const groupIds = [...new Set(txs.map((t) => t.group_id))];
-    const suggestionMap = new Map<string, string | null>();
+    const enrichMap = new Map<string, { vendorId: string | null; similarity: number }>();
 
     for (const gid of groupIds) {
       const groupTxs = txs.filter((t) => t.group_id === gid);
       const groupVendors = vendors.filter((v) => v.group_id === gid);
       const results = runVendorNormalizationPipeline(groupTxs, groupVendors);
-      for (const r of results) suggestionMap.set(r.id, r.suggestedVendorId);
+      for (const r of results) enrichMap.set(r.id, { vendorId: r.suggestedVendorId, similarity: r.similarity });
     }
 
-    return txs.map((tx) => ({ ...tx, suggested_vendor_id: suggestionMap.get(tx.id) ?? null }));
+    return txs.map((tx) => ({
+      ...tx,
+      suggested_vendor_id: enrichMap.get(tx.id)?.vendorId ?? null,
+      _similarity: enrichMap.get(tx.id)?.similarity,
+    }));
   }, [auditQuery.data, vendorsQuery.data]);
 
   // ── scan ──────────────────────────────────────────────────────────────────
@@ -483,6 +489,9 @@ export function VendorAudit() {
   const [clusterEdits, setClusterEdits] = useState<Record<string, string>>({});
   const [clusterSelectedVendor, setClusterSelectedVendor] = useState<Record<string, Vendor | null>>({});
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
+  const [overridingClusters, setOverridingClusters] = useState<Set<string>>(new Set());
+  const [overrideEdits, setOverrideEdits] = useState<Record<string, string>>({});
+  const [overrideSelectedVendor, setOverrideSelectedVendor] = useState<Record<string, Vendor | null>>({});
 
   // vendor catalog edit state
   const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
@@ -530,7 +539,7 @@ export function VendorAudit() {
     for (const tx of enrichedTxs.filter((t) => t.vendor_mapping_status === "needs_vendor_review")) {
       const key = (tx.vendor_or_source ?? "").toLowerCase().trim();
       if (!map.has(key)) {
-        map.set(key, { key, rawName: tx.vendor_or_source ?? "", groupId: tx.group_id, transactions: [], suggestedVendorId: tx.suggested_vendor_id, canonicalName: tx.vendor_or_source ?? "" });
+        map.set(key, { key, rawName: tx.vendor_or_source ?? "", groupId: tx.group_id, transactions: [], suggestedVendorId: tx.suggested_vendor_id, canonicalName: tx.vendor_or_source ?? "", similarity: tx._similarity });
       }
       map.get(key)!.transactions.push(tx);
     }
@@ -555,7 +564,7 @@ export function VendorAudit() {
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto", padding: "32px 24px" }}>
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28, gap: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "var(--text-primary)" }}>
@@ -602,8 +611,15 @@ export function VendorAudit() {
         </div>
       )}
 
+      {/* ── Two-panel grid ──────────────────────────────────────────────── */}
+      {!isLoading && !isMigrationNeeded && (
+        <div className="audit-layout" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 28, alignItems: "start" }}>
+
+          {/* ── LEFT: audit queue ──────────────────────────────────────── */}
+          <div>
+
       {/* ── Potential Matches ─────────────────────────────────────────── */}
-      {!isLoading && !isMigrationNeeded && potentialClusters.length > 0 && (
+      {potentialClusters.length > 0 && (
         <section style={{ marginBottom: 36 }}>
           <SectionHeader icon={<ArrowRightLeft size={16} />} title="Potential Matches" subtitle="Fuzzy score 60–90% or token overlap — confirm or reclassify as new." color="var(--color-accent)" />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -612,6 +628,9 @@ export function VendorAudit() {
               const isPending = confirmMutation.isPending || treatAsNewMutation.isPending;
               const isExpanded = expandedClusters.has(cluster.key);
               const isAdmin = isAdminOf(cluster.groupId);
+              const isOverriding = overridingClusters.has(cluster.key);
+              const overrideEdit = overrideEdits[cluster.key] ?? "";
+              const overrideVendor = overrideSelectedVendor[cluster.key] ?? null;
               return (
                 <div key={cluster.key} style={cardStyle}>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
@@ -629,16 +648,69 @@ export function VendorAudit() {
                       <p style={{ margin: "0 0 10px", fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)", wordBreak: "break-word" }}>
                         {cluster.rawName}
                       </p>
-                      {suggestedVendor ? (
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(59,130,246,0.10)", border: "1px solid rgba(59,130,246,0.25)", borderRadius: 6, padding: "5px 10px", fontSize: "0.82rem" }}>
-                          <Store size={13} color="var(--color-accent)" />
-                          <span style={{ color: "var(--color-accent)", fontWeight: 600 }}>{suggestedVendor.canonical_name}</span>
+                      {!isOverriding && (suggestedVendor ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(59,130,246,0.10)", border: "1px solid rgba(59,130,246,0.25)", borderRadius: 6, padding: "5px 10px", fontSize: "0.82rem" }}>
+                            <Store size={13} color="var(--color-accent)" />
+                            <span style={{ color: "var(--color-accent)", fontWeight: 600 }}>{suggestedVendor.canonical_name}</span>
+                            {cluster.similarity !== undefined && (
+                              <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>· {Math.round(cluster.similarity * 100)}%</span>
+                            )}
+                          </div>
+                          {isAdmin && (
+                            <button
+                              onClick={() => {
+                                setOverridingClusters((prev) => { const s = new Set(prev); s.add(cluster.key); return s; });
+                                setOverrideEdits((prev) => ({ ...prev, [cluster.key]: "" }));
+                                setOverrideSelectedVendor((prev) => ({ ...prev, [cluster.key]: null }));
+                              }}
+                              style={{ background: "none", border: "none", padding: 0, fontSize: "0.75rem", color: "var(--text-muted)", cursor: "pointer", textDecoration: "underline" }}
+                            >
+                              Wrong match?
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Suggested vendor not found in catalog</span>
+                      ))}
+                      {isOverriding && isAdmin && (
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 4 }}>
+                          <VendorCombobox
+                            value={overrideEdit}
+                            onChange={(v) => {
+                              setOverrideEdits((prev) => ({ ...prev, [cluster.key]: v }));
+                              setOverrideSelectedVendor((prev) => ({ ...prev, [cluster.key]: null }));
+                            }}
+                            onSelect={(v) => {
+                              setOverrideEdits((prev) => ({ ...prev, [cluster.key]: v.canonical_name }));
+                              setOverrideSelectedVendor((prev) => ({ ...prev, [cluster.key]: v }));
+                            }}
+                            vendors={(vendorsQuery.data ?? []).filter((v) => v.group_id === cluster.groupId)}
+                            placeholder="Select correct vendor…"
+                          />
+                          <div style={{ display: "flex", gap: 7, alignSelf: "flex-end" }}>
+                            <button
+                              disabled={isPending || !overrideVendor}
+                              onClick={() => {
+                                if (!overrideVendor) return;
+                                confirmMutation.mutate({ rawName: cluster.rawName, vendorId: overrideVendor.id, groupId: cluster.groupId });
+                                setOverridingClusters((prev) => { const s = new Set(prev); s.delete(cluster.key); return s; });
+                              }}
+                              style={{ ...primaryBtn, opacity: !overrideVendor || isPending ? 0.5 : 1 }}
+                            >
+                              <CheckCircle2 size={13} /> Confirm Override
+                            </button>
+                            <button
+                              onClick={() => setOverridingClusters((prev) => { const s = new Set(prev); s.delete(cluster.key); return s; })}
+                              style={ghostBtn}
+                            >
+                              <X size={13} /> Cancel
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
-                    {isAdmin && (
+                    {isAdmin && !isOverriding && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 7, flexShrink: 0 }}>
                         {suggestedVendor && (
                           <button disabled={isPending} onClick={() => confirmMutation.mutate({ rawName: cluster.rawName, vendorId: suggestedVendor.id, groupId: cluster.groupId })} style={primaryBtn}>
@@ -662,7 +734,7 @@ export function VendorAudit() {
       )}
 
       {/* ── New Vendor Candidates ─────────────────────────────────────── */}
-      {!isLoading && !isMigrationNeeded && newCandidateClusters.length > 0 && (
+      {newCandidateClusters.length > 0 && (
         <section style={{ marginBottom: 36 }}>
           <SectionHeader icon={<Plus size={16} />} title="New Vendor Candidates" subtitle="No match found — type a canonical name or select an existing vendor." color="#f59e0b" />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -726,18 +798,23 @@ export function VendorAudit() {
         </section>
       )}
 
-      {!isLoading && !isMigrationNeeded && totalPending === 0 && !scanMutation.isPending && (
-        <div style={{ textAlign: "center", padding: "56px 24px", background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border-color)", marginBottom: 36 }}>
+      {totalPending === 0 && !scanMutation.isPending && (
+        <div style={{ textAlign: "center", padding: "56px 24px", background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border-color)" }}>
           <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: "0 auto 14px" }} />
           <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>All vendors are mapped</p>
           <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>Click <strong>Scan Unmapped Vendors</strong> to check for new receipts.</p>
         </div>
       )}
 
+          </div>{/* end LEFT */}
+
+          {/* ── RIGHT: catalog + mappings (sticky) ─────────────────────── */}
+          <div style={{ position: "sticky", top: 24, maxHeight: "calc(100vh - 48px)", overflowY: "auto" }}>
+
       {/* ── Vendor Catalog ────────────────────────────────────────────── */}
-      {!isLoading && !isMigrationNeeded && (vendorsQuery.data ?? []).length > 0 && (
-        <section>
-          <SectionHeader icon={<Store size={16} />} title="Vendor Catalog" subtitle="All canonical vendors for your group." color="var(--text-muted)" />
+      {(vendorsQuery.data ?? []).length > 0 && (
+        <section style={{ marginBottom: 24 }}>
+          <SectionHeader icon={<Store size={16} />} title="Vendor Catalog" subtitle={`${(vendorsQuery.data ?? []).length} canonical vendor${(vendorsQuery.data ?? []).length !== 1 ? "s" : ""}`} color="var(--text-muted)" />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {(vendorsQuery.data ?? []).map((vendor) => {
               const isEditing = editingVendorId === vendor.id;
@@ -807,8 +884,8 @@ export function VendorAudit() {
       )}
 
       {/* ── Confirmed Mappings ───────────────────────────────────────── */}
-      {!isLoading && !isMigrationNeeded && (rawMappingsQuery.data ?? []).length > 0 && (
-        <section style={{ marginTop: 36 }}>
+      {(rawMappingsQuery.data ?? []).length > 0 && (
+        <section>
           <SectionHeader
             icon={<CheckCircle2 size={16} />}
             title="Confirmed Mappings"
@@ -850,6 +927,10 @@ export function VendorAudit() {
         </section>
       )}
 
+          </div>{/* end RIGHT */}
+        </div>{/* end audit-layout grid */}
+      )}{/* end !isLoading && !isMigrationNeeded */}
+
       {lightboxLoading && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
           <Loader2 size={32} color="#fff" style={{ animation: "spin 1s linear infinite" }} />
@@ -876,7 +957,10 @@ export function VendorAudit() {
         </div>
       )}
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 900px) { .audit-layout { grid-template-columns: 1fr !important; } }
+      `}</style>
     </div>
   );
 }

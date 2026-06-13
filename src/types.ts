@@ -77,6 +77,14 @@ export type VendorRawMapping = {
   created_at: string;
 };
 
+export type ProductRawMapping = {
+  id: string;
+  group_id: string;
+  raw_name: string;
+  product_id: string;
+  created_at: string;
+};
+
 export type TransactionItem = {
   id: string;
   transaction_id: string;
