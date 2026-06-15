@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, ShoppingCart, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Search, ShoppingCart, Check, ChevronDown, ChevronUp, Info } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import type { Transaction } from "../types";
+import type { Transaction, Product } from "../types";
 
 const SHOPPING_CATEGORIES = ["Comida", "Limpieza", "Cuidado Personal"] as const;
 type ShoppingCategory = (typeof SHOPPING_CATEGORIES)[number];
@@ -113,6 +113,7 @@ export function ShoppingList() {
   const [search, setSearch] = useState("");
   const [showBought, setShowBought] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -131,30 +132,65 @@ export function ShoppingList() {
         if (!memberships || memberships.length === 0) {
           setLoading(false);
           setTransactions([]);
+          setProducts([]);
           return;
         }
         const groupIds = memberships.map((m: any) => m.group_id);
 
-        supabase
-          .from("transactions")
-          .select("*, transaction_items(*)")
-          .in("group_id", groupIds)
-          .eq("is_reviewed", true)
-          .eq("type", "expense")
-          .gte("date", cutoffStr)
-          .then(({ data }) => {
-            setLoading(false);
-            setTransactions(data ?? []);
-          });
+        Promise.all([
+          supabase
+            .from("transactions")
+            .select("*, transaction_items(*)")
+            .in("group_id", groupIds)
+            .eq("is_reviewed", true)
+            .eq("type", "expense")
+            .gte("date", cutoffStr),
+          supabase
+            .from("products")
+            .select("id, name, category")
+            .in("group_id", groupIds),
+        ]).then(([{ data: txData }, { data: prodData }]) => {
+          setLoading(false);
+          setTransactions(txData ?? []);
+          setProducts(prodData ?? []);
+        });
       });
   }, [user, historyMonths]);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
 
+  // How many distinct months have qualifying data (used for adaptive threshold)
+  const dataMonths = useMemo(() => {
+    const months = new Set<string>();
+    for (const tx of transactions) {
+      if (!tx.date) continue;
+      for (const item of tx.transaction_items ?? []) {
+        if ((SHOPPING_CATEGORIES as readonly string[]).includes(item.category ?? ""))
+          months.add(tx.date.slice(0, 7));
+      }
+    }
+    return months.size;
+  }, [transactions]);
+
+  // Reset threshold when switching to a history window with less data than current threshold
+  useEffect(() => {
+    if (dataMonths > 0 && threshold > dataMonths) {
+      setThreshold(Math.max(dataMonths, 1));
+    }
+  }, [dataMonths, threshold]);
+
   const shoppingItems = useMemo<ShoppingItem[]>(() => {
+    // Fix 0: canonical name lookup maps
+    const productById = new Map<string, string>(
+      products.map((p) => [p.id, p.name])
+    );
+    const productByName = new Map<string, { id: string; name: string }>(
+      products.map((p) => [p.name.trim().toLowerCase(), { id: p.id, name: p.name }])
+    );
+
     type RawEntry = {
       key: string;
-      rawName: string;
+      displayName: string;
       category: ShoppingCategory;
       quantity: number;
       unitPrice: number;
@@ -173,9 +209,28 @@ export function ShoppingList() {
           !(SHOPPING_CATEGORIES as readonly string[]).includes(item.category)
         )
           continue;
+
+        // Fix 0: resolve key + displayName via canonical product lookup
+        let key: string;
+        let displayName: string;
+
+        if (item.product_id) {
+          key = item.product_id;
+          displayName = productById.get(item.product_id) ?? item.name.trim();
+        } else {
+          const matched = productByName.get(item.name.trim().toLowerCase());
+          if (matched) {
+            key = matched.id;
+            displayName = matched.name;
+          } else {
+            key = item.name.trim().toLowerCase();
+            displayName = item.name.trim();
+          }
+        }
+
         enriched.push({
-          key: item.product_id ?? item.name.trim().toLowerCase(),
-          rawName: item.name.trim(),
+          key,
+          displayName,
           category: item.category as ShoppingCategory,
           quantity: item.quantity,
           unitPrice: item.unit_price,
@@ -199,15 +254,20 @@ export function ShoppingList() {
       const monthsPresent = months.size;
 
       const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
-      const displayName = sorted[0].rawName;
+      // Use the most recent resolved display name
+      const displayName = sorted[0].displayName;
 
       const catCount = new Map<string, number>();
       for (const e of entries)
         catCount.set(e.category, (catCount.get(e.category) ?? 0) + 1);
       const category = [...catCount.entries()].sort((a, b) => b[1] - a[1])[0][0] as ShoppingCategory;
 
+      // Fix 2: avgQuantity per-month (sum per month, then average monthly totals)
+      const qtyByMonth = new Map<string, number>();
+      for (const e of entries)
+        qtyByMonth.set(e.month, (qtyByMonth.get(e.month) ?? 0) + e.quantity);
       const avgQuantity =
-        entries.reduce((s, e) => s + e.quantity, 0) / entries.length;
+        [...qtyByMonth.values()].reduce((s, q) => s + q, 0) / qtyByMonth.size;
 
       const priced = entries.filter((e) => e.unitPrice > 0);
       const latestPrice = sorted.find((e) => e.unitPrice > 0)?.unitPrice ?? null;
@@ -235,19 +295,22 @@ export function ShoppingList() {
     }
 
     return items.sort((a, b) => b.frequency - a.frequency);
-  }, [transactions, historyMonths, currentMonth]);
+  }, [transactions, products, historyMonths, currentMonth]);
+
+  // Fix 1: cap threshold to actual data available
+  const effectiveThreshold = Math.min(threshold, Math.max(dataMonths, 1));
 
   const filtered = useMemo(
     () =>
       shoppingItems
         .filter((i) => activeCategories.has(i.category))
-        .filter((i) => i.monthsPresent >= threshold)
+        .filter((i) => i.monthsPresent >= effectiveThreshold)
         .filter(
           (i) =>
             !search ||
             i.displayName.toLowerCase().includes(search.toLowerCase())
         ),
-    [shoppingItems, activeCategories, threshold, search]
+    [shoppingItems, activeCategories, effectiveThreshold, search]
   );
 
   const toBuy = filtered.filter((i) => !i.alreadyThisMonth);
@@ -276,6 +339,8 @@ export function ShoppingList() {
         .sl-title{font-size:1.5rem;font-weight:700;color:var(--text-primary);margin:0 0 3px}
         .sl-subtitle{font-size:0.8rem;color:var(--text-muted);margin:0}
         .sl-history-select{padding:7px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;color:var(--text-secondary);font-size:0.82rem;cursor:pointer;align-self:flex-start;outline:none;font-family:inherit}
+        .sl-info-banner{display:flex;align-items:flex-start;gap:8px;padding:10px 14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:8px;font-size:0.78rem;color:var(--text-secondary);margin-bottom:20px;line-height:1.5}
+        .sl-info-banner svg{flex-shrink:0;margin-top:1px;color:#3b82f6}
         .sl-progress{background:var(--bg-card);border:1px solid var(--border-color);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:14px}
         .sl-progress__text{font-size:0.85rem;color:var(--text-secondary);flex-shrink:0;white-space:nowrap}
         .sl-progress__text strong{color:var(--text-primary)}
@@ -352,6 +417,16 @@ export function ShoppingList() {
           </select>
         </div>
 
+        {/* Fix 1: Info banner for users with limited history */}
+        {!loading && dataMonths < 3 && shoppingItems.length > 0 && (
+          <div className="sl-info-banner">
+            <Info size={14} />
+            {dataMonths <= 1
+              ? "Mostrando todos tus productos — la lista se refinará automáticamente al acumular más meses."
+              : `Historial de ${dataMonths} meses — el filtro de frecuencia se ajusta a tus datos disponibles.`}
+          </div>
+        )}
+
         {/* Progress bar */}
         {!loading && filtered.length > 0 && (
           <div className="sl-progress">
@@ -397,14 +472,15 @@ export function ShoppingList() {
 
         {/* Controls */}
         <div className="sl-controls">
+          {/* Fix 1: only show options that are achievable with current data */}
           <select
             className="sl-select"
             value={threshold}
             onChange={(e) => setThreshold(Number(e.target.value))}
           >
             <option value={1}>Cualquier frecuencia</option>
-            <option value={2}>Mín. 2 meses</option>
-            <option value={3}>Mín. 3 meses</option>
+            {dataMonths >= 2 && <option value={2}>Mín. 2 meses</option>}
+            {dataMonths >= 3 && <option value={3}>Mín. 3 meses</option>}
           </select>
           <div className="sl-search-wrap">
             <span className="sl-search-icon">
