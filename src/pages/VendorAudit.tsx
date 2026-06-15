@@ -928,7 +928,7 @@ export function VendorAudit() {
       )}
 
           </div>{/* end RIGHT */}
-        </div>{/* end audit-layout grid */}
+        </div>
       )}{/* end !isLoading && !isMigrationNeeded */}
 
       {lightboxLoading && (

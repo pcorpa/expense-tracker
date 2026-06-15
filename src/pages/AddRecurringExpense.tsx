@@ -6,7 +6,9 @@ import { supabase } from "../lib/supabase";
 import {
   generateDueTransactions,
   countRetroactivePeriods,
+  computeInitialLastGeneratedDate,
 } from "../lib/recurringExpenses";
+import { ConfirmModal } from "../components/ConfirmModal";
 import type { Group, RecurringExpenseType, RecurringFrequency } from "../types";
 
 const FIXED_CATEGORIES = [
@@ -83,6 +85,7 @@ export function AddRecurringExpense() {
   const [name, setName] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [category, setCategory] = useState("Tecnología");
+  const [customCategory, setCustomCategory] = useState("");
   const [currency, setCurrency] = useState("UY$");
   const [amount, setAmount] = useState("");
   const [totalPurchaseAmount, setTotalPurchaseAmount] = useState("");
@@ -92,9 +95,11 @@ export function AddRecurringExpense() {
     new Date().toISOString().split("T")[0]
   );
   const [notes, setNotes] = useState("");
+  const [paidInstallments, setPaidInstallments] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -126,16 +131,15 @@ export function AddRecurringExpense() {
       ? Number(totalInstallments)
       : undefined
   );
-  const showRetroNote = retroCount > 1;
+  const effectiveRetroCount = Math.max(0, retroCount - paidInstallments);
+  const showRetroNote = retroCount > 0;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setShowErrors(true);
 
     const isInstallment = type === "installment";
-    const resolvedAmount = isInstallment
-      ? installmentAmount
-      : Number(amount);
+    const resolvedAmount = isInstallment ? installmentAmount : Number(amount);
 
     if (!name.trim() || !groupId || !resolvedAmount || resolvedAmount <= 0) return;
     if (
@@ -146,9 +150,23 @@ export function AddRecurringExpense() {
         Number(totalInstallments) < 2)
     )
       return;
+    if (isInstallment && paidInstallments >= Number(totalInstallments)) return;
 
+    const needsConfirmation = paidInstallments > 0 || effectiveRetroCount > 0;
+    if (needsConfirmation) {
+      setShowConfirmModal(true);
+    } else {
+      await doSave();
+    }
+  }
+
+  async function doSave() {
+    setShowConfirmModal(false);
     setLoading(true);
     setError(null);
+
+    const isInstallment = type === "installment";
+    const resolvedAmount = isInstallment ? installmentAmount : Number(amount);
 
     const payload: any = {
       group_id: groupId,
@@ -156,7 +174,7 @@ export function AddRecurringExpense() {
       name: name.trim(),
       vendor_name: vendorName.trim() || null,
       type,
-      category,
+      category: category === "Otro" ? customCategory.trim() || "Otro" : category,
       currency,
       amount: resolvedAmount,
       frequency,
@@ -167,6 +185,13 @@ export function AddRecurringExpense() {
     if (isInstallment) {
       payload.total_purchase_amount = Number(totalPurchaseAmount);
       payload.total_installments = Number(totalInstallments);
+      if (paidInstallments > 0) {
+        payload.last_generated_date = computeInitialLastGeneratedDate(
+          startDate,
+          frequency,
+          paidInstallments
+        );
+      }
     }
 
     const { data: inserted, error: insertError } = await supabase
@@ -342,6 +367,18 @@ export function AddRecurringExpense() {
                 ))}
               </select>
             </label>
+            {category === "Otro" && (
+              <label style={{ gridColumn: "1 / -1" }}>
+                Nombre de categoría
+                <input
+                  type="text"
+                  placeholder="Ej: Médico, Deporte, Mascotas…"
+                  value={customCategory}
+                  onChange={(e) => setCustomCategory(e.target.value)}
+                  autoFocus
+                />
+              </label>
+            )}
             <label>
               Moneda
               <select
@@ -419,7 +456,10 @@ export function AddRecurringExpense() {
                     max="360"
                     step="1"
                     value={totalInstallments}
-                    onChange={(e) => setTotalInstallments(e.target.value)}
+                    onChange={(e) => {
+                      setTotalInstallments(e.target.value);
+                      if (paidInstallments >= Number(e.target.value)) setPaidInstallments(0);
+                    }}
                     placeholder="Ej: 12"
                     style={
                       showErrors &&
@@ -472,6 +512,74 @@ export function AddRecurringExpense() {
                   </span>
                 </div>
               )}
+
+              {Number(totalInstallments) >= 2 && (
+                <div
+                  style={{
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: 8,
+                    padding: "12px 16px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <label
+                    htmlFor="paid-installments"
+                    style={{
+                      fontSize: "0.85rem",
+                      color: "var(--text-secondary)",
+                      flexShrink: 0,
+                      margin: 0,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cuotas ya pagadas
+                  </label>
+                  <input
+                    id="paid-installments"
+                    type="number"
+                    min={0}
+                    max={Number(totalInstallments) - 1}
+                    step={1}
+                    value={paidInstallments}
+                    onChange={(e) =>
+                      setPaidInstallments(
+                        Math.max(
+                          0,
+                          Math.min(
+                            Math.floor(Number(e.target.value)),
+                            Number(totalInstallments) - 1
+                          )
+                        )
+                      )
+                    }
+                    style={{ width: 72, textAlign: "center" }}
+                  />
+                  <span
+                    style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}
+                  >
+                    de {totalInstallments} cuotas
+                  </span>
+                  {paidInstallments > 0 && (
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        fontSize: "0.78rem",
+                        color: "var(--color-accent)",
+                        background: "rgba(99,102,241,0.12)",
+                        borderRadius: 6,
+                        padding: "3px 8px",
+                        fontWeight: 600,
+                        flexShrink: 0,
+                      }}
+                    >
+                      Próxima: cuota {paidInstallments + 1}
+                    </span>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -505,11 +613,32 @@ export function AddRecurringExpense() {
           {showRetroNote && (
             <p className="recurring-retro-note">
               <Info size={12} style={{ flexShrink: 0 }} />
-              Se generarán{" "}
-              <strong style={{ color: "var(--text-secondary)" }}>
-                {retroCount} transacciones retroactivas
-              </strong>{" "}
-              al guardar.
+              {paidInstallments > 0 && effectiveRetroCount === 0 ? (
+                <>
+                  Las{" "}
+                  <strong style={{ color: "var(--text-secondary)" }}>
+                    {retroCount} cuotas retroactivas
+                  </strong>{" "}
+                  quedan cubiertas por las cuotas ya pagadas. No se generarán
+                  transacciones retroactivas.
+                </>
+              ) : paidInstallments > 0 ? (
+                <>
+                  Se generarán{" "}
+                  <strong style={{ color: "var(--text-secondary)" }}>
+                    {effectiveRetroCount} transacciones retroactivas
+                  </strong>{" "}
+                  al guardar ({paidInstallments} cuotas ya pagadas se omitirán).
+                </>
+              ) : (
+                <>
+                  Se generarán{" "}
+                  <strong style={{ color: "var(--text-secondary)" }}>
+                    {retroCount} transacciones retroactivas
+                  </strong>{" "}
+                  al guardar.
+                </>
+              )}
             </p>
           )}
 
@@ -569,6 +698,36 @@ export function AddRecurringExpense() {
           </div>
         </form>
       </div>
+
+      <ConfirmModal
+        open={showConfirmModal}
+        title="Confirmar gasto recurrente"
+        confirmLabel="Guardar"
+        onCancel={() => setShowConfirmModal(false)}
+        onConfirm={doSave}
+        loading={loading}
+      >
+        {paidInstallments > 0 && (
+          <p style={{ margin: "0 0 10px" }}>
+            Las cuotas <strong>1–{paidInstallments}</strong> no serán
+            registradas. La generación comenzará desde la{" "}
+            <strong>cuota {paidInstallments + 1}</strong>.
+          </p>
+        )}
+        {effectiveRetroCount > 0 && (
+          <p style={{ margin: 0 }}>
+            Se crearán{" "}
+            <strong>{effectiveRetroCount} transacciones retroactivas</strong>{" "}
+            desde {startDate}.
+          </p>
+        )}
+        {effectiveRetroCount === 0 && paidInstallments > 0 && retroCount > 0 && (
+          <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.83rem" }}>
+            No se generarán transacciones retroactivas (cubiertas por las cuotas
+            ya pagadas).
+          </p>
+        )}
+      </ConfirmModal>
     </div>
   );
 }

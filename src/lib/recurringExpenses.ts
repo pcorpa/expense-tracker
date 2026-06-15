@@ -146,3 +146,20 @@ export function countRetroactivePeriods(
 export function countPaidInstallments(re: RecurringExpense): number {
   return countGeneratedPeriods(re);
 }
+
+/**
+ * Returns the last_generated_date string for a new template that starts with
+ * N already-paid installments. Installment 1 lands on start_date, so
+ * installment N lands on start_date + (N-1) periods.
+ */
+export function computeInitialLastGeneratedDate(
+  startDate: string,
+  frequency: RecurringFrequency,
+  paidInstallments: number
+): string {
+  let d = new Date(startDate + "T00:00:00");
+  for (let i = 1; i < paidInstallments; i++) {
+    d = addPeriod(d, frequency);
+  }
+  return d.toISOString().split("T")[0];
+}

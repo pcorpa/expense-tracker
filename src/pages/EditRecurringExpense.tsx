@@ -4,6 +4,20 @@ import { ArrowLeft, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 import type { RecurringExpense, RecurringFrequency } from "../types";
+import { ConfirmModal } from "../components/ConfirmModal";
+import { countPaidInstallments, computeInitialLastGeneratedDate } from "../lib/recurringExpenses";
+
+const CANCEL_LABEL: Record<string, string> = {
+  subscription: "Cancelar suscripción",
+  installment: "Cancelar cuotas pendientes",
+  periodic_bill: "Cancelar gasto fijo",
+};
+
+const CANCEL_BODY: Record<string, string> = {
+  subscription: "No se generarán nuevas transacciones. Las existentes quedan en el registro normalmente.",
+  installment: "Las cuotas restantes no se generarán. Las transacciones ya registradas quedan en el historial.",
+  periodic_bill: "No se generarán nuevas transacciones. Las existentes quedan en el registro normalmente.",
+};
 
 const FIXED_CATEGORIES = [
   "Comida",
@@ -54,6 +68,7 @@ export function EditRecurringExpense() {
   const [name, setName] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [category, setCategory] = useState("Tecnología");
+  const [customCategory, setCustomCategory] = useState("");
   const [currency, setCurrency] = useState("UY$");
   const [amount, setAmount] = useState("");
   const [totalPurchaseAmount, setTotalPurchaseAmount] = useState("");
@@ -73,6 +88,8 @@ export function EditRecurringExpense() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteMode, setDeleteMode] = useState<DeleteMode>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [currentInstallment, setCurrentInstallment] = useState(0);
 
   useEffect(() => {
     if (!user || !id) return;
@@ -89,7 +106,12 @@ export function EditRecurringExpense() {
         setItem(data);
         setName(data.name);
         setVendorName(data.vendor_name ?? "");
-        setCategory(data.category);
+        if (FIXED_CATEGORIES.includes(data.category)) {
+          setCategory(data.category);
+        } else {
+          setCategory("Otro");
+          setCustomCategory(data.category);
+        }
         setCurrency(data.currency);
         setAmount(data.amount.toString());
         setTotalPurchaseAmount(data.total_purchase_amount?.toString() ?? "");
@@ -97,6 +119,9 @@ export function EditRecurringExpense() {
         setFrequency(data.frequency);
         setStartDate(data.start_date);
         setNotes(data.notes ?? "");
+        if (data.type === "installment") {
+          setCurrentInstallment(countPaidInstallments(data));
+        }
         setLoading(false);
       });
   }, [user, id]);
@@ -118,13 +143,21 @@ export function EditRecurringExpense() {
       item?.type === "installment" ? installmentAmount : Number(amount);
     if (!resolvedAmount || resolvedAmount <= 0) return;
 
+    setShowConfirmModal(true);
+  }
+
+  async function doSave() {
+    setShowConfirmModal(false);
     setSaving(true);
     setError(null);
+
+    const resolvedAmount =
+      item?.type === "installment" ? installmentAmount : Number(amount);
 
     const payload: any = {
       name: name.trim(),
       vendor_name: vendorName.trim() || null,
-      category,
+      category: category === "Otro" ? customCategory.trim() || "Otro" : category,
       currency,
       amount: resolvedAmount,
       frequency,
@@ -136,6 +169,30 @@ export function EditRecurringExpense() {
     if (item?.type === "installment") {
       payload.total_purchase_amount = Number(totalPurchaseAmount);
       payload.total_installments = Number(totalInstallments);
+    }
+
+    const originalPaid = item?.type === "installment" ? countPaidInstallments(item) : 0;
+    const installmentChanged = item?.type === "installment" && currentInstallment !== originalPaid;
+
+    if (installmentChanged) {
+      payload.last_generated_date =
+        currentInstallment === 0
+          ? null
+          : computeInitialLastGeneratedDate(startDate, frequency, currentInstallment);
+    }
+
+    if (installmentChanged && currentInstallment < originalPaid) {
+      const { data: txsToDelete } = await supabase
+        .from("transactions")
+        .select("id")
+        .eq("recurring_expense_id", id!)
+        .gt("installment_number", currentInstallment);
+
+      if (txsToDelete && txsToDelete.length > 0) {
+        const txIds = txsToDelete.map((t: any) => t.id);
+        await supabase.from("transaction_items").delete().in("transaction_id", txIds);
+        await supabase.from("transactions").delete().in("id", txIds);
+      }
     }
 
     const { error: updateError } = await supabase
@@ -295,7 +352,7 @@ export function EditRecurringExpense() {
                   style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
                 >
                   <XCircle size={13} />
-                  Cancelar suscripción
+                  {CANCEL_LABEL[item.type] ?? "Cancelar"}
                 </button>
               )}
               <button
@@ -346,8 +403,7 @@ export function EditRecurringExpense() {
                 marginBottom: 12,
               }}
             >
-              No se generarán nuevas transacciones. Las existentes quedan en el
-              registro de gastos normalmente.
+              {CANCEL_BODY[item.type] ?? "No se generarán nuevas transacciones."}
             </p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button
@@ -423,6 +479,18 @@ export function EditRecurringExpense() {
                 ))}
               </select>
             </label>
+            {category === "Otro" && (
+              <label style={{ gridColumn: "1 / -1" }}>
+                Nombre de categoría
+                <input
+                  type="text"
+                  placeholder="Ej: Médico, Deporte, Mascotas…"
+                  value={customCategory}
+                  onChange={(e) => setCustomCategory(e.target.value)}
+                  autoFocus
+                />
+              </label>
+            )}
             <label>
               Moneda
               <select
@@ -515,6 +583,82 @@ export function EditRecurringExpense() {
                       maximumFractionDigits: 2,
                     })}
                   </span>
+                </div>
+              )}
+
+              {Number(totalInstallments) >= 2 && (
+                <div
+                  style={{
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: 8,
+                    padding: "12px 16px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <label
+                    htmlFor="current-installment"
+                    style={{
+                      fontSize: "0.85rem",
+                      color: "var(--text-secondary)",
+                      flexShrink: 0,
+                      margin: 0,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cuota actual
+                  </label>
+                  <input
+                    id="current-installment"
+                    type="number"
+                    min={0}
+                    max={Number(totalInstallments) - 1}
+                    step={1}
+                    value={currentInstallment}
+                    onChange={(e) =>
+                      setCurrentInstallment(
+                        Math.max(
+                          0,
+                          Math.min(
+                            Math.floor(Number(e.target.value)),
+                            Number(totalInstallments) - 1
+                          )
+                        )
+                      )
+                    }
+                    style={{ width: 72, textAlign: "center" }}
+                  />
+                  <span
+                    style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}
+                  >
+                    de {totalInstallments} cuotas
+                  </span>
+                  {currentInstallment !== countPaidInstallments(item) && (
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        fontSize: "0.78rem",
+                        color:
+                          currentInstallment > countPaidInstallments(item)
+                            ? "var(--color-accent)"
+                            : "#f59e0b",
+                        background:
+                          currentInstallment > countPaidInstallments(item)
+                            ? "rgba(99,102,241,0.12)"
+                            : "rgba(245,158,11,0.12)",
+                        borderRadius: 6,
+                        padding: "3px 8px",
+                        fontWeight: 600,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {currentInstallment > countPaidInstallments(item)
+                        ? `+${currentInstallment - countPaidInstallments(item)} cuotas omitidas`
+                        : `−${countPaidInstallments(item) - currentInstallment} cuotas eliminadas`}
+                    </span>
+                  )}
                 </div>
               )}
             </>
@@ -618,6 +762,51 @@ export function EditRecurringExpense() {
         </form>
       </div>
 
+      <ConfirmModal
+        open={showConfirmModal}
+        title="Guardar cambios"
+        confirmLabel="Guardar cambios"
+        onCancel={() => setShowConfirmModal(false)}
+        onConfirm={doSave}
+        loading={saving}
+      >
+        {item?.type === "installment" && currentInstallment !== countPaidInstallments(item) ? (
+          <>
+            {currentInstallment > countPaidInstallments(item) ? (
+              <p style={{ margin: "0 0 10px" }}>
+                La cuota actual pasará de{" "}
+                <strong>{countPaidInstallments(item)}</strong> a{" "}
+                <strong>{currentInstallment}</strong>. Las cuotas{" "}
+                {countPaidInstallments(item) + 1}–{currentInstallment} no serán
+                registradas.
+              </p>
+            ) : (
+              <p style={{ margin: "0 0 10px" }}>
+                La cuota actual volverá de{" "}
+                <strong>{countPaidInstallments(item)}</strong> a{" "}
+                <strong>{currentInstallment}</strong>. Se eliminarán las
+                transacciones de las cuotas {currentInstallment + 1}–
+                {countPaidInstallments(item)}.
+              </p>
+            )}
+            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.83rem" }}>
+              Los demás cambios se aplicarán a las próximas transacciones
+              generadas.
+            </p>
+          </>
+        ) : (
+          <>
+            <p style={{ margin: "0 0 10px" }}>
+              Los cambios se aplicarán a las{" "}
+              <strong>próximas transacciones generadas</strong>.
+            </p>
+            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.83rem" }}>
+              Las transacciones ya creadas no se modificarán.
+            </p>
+          </>
+        )}
+      </ConfirmModal>
+
       {/* Delete dialog */}
       {showDeleteDialog && (
         <div
@@ -698,9 +887,9 @@ export function EditRecurringExpense() {
                     value={opt.value}
                     checked={deleteMode === opt.value}
                     onChange={() => setDeleteMode(opt.value)}
-                    style={{ marginTop: 2, flexShrink: 0 }}
+                    style={{ marginTop: 2, flexShrink: 0, width: "auto", display: "inline-block" }}
                   />
-                  <div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div
                       style={{
                         fontWeight: 600,

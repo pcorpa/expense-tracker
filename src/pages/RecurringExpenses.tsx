@@ -12,6 +12,7 @@ import {
   Edit2,
   XCircle,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
@@ -142,11 +143,27 @@ export function RecurringExpenses() {
   const active = filtered.filter((r) => r.is_active);
   const inactive = filtered.filter((r) => !r.is_active);
 
-  const primaryCurrency = active[0]?.currency ?? items[0]?.currency ?? "UY$";
-  const monthlyTotal = active.reduce(
-    (sum, r) => sum + r.amount * FREQ_MONTHLY_MULT[r.frequency],
-    0
-  );
+  const FREQUENT_FREQS = new Set<RecurringFrequency>(["weekly", "biweekly", "monthly"]);
+
+  const nextMonthByCurrency = active
+    .filter(r => FREQUENT_FREQS.has(r.frequency))
+    .reduce((acc, r) => {
+      acc[r.currency] = (acc[r.currency] ?? 0) + r.amount * FREQ_MONTHLY_MULT[r.frequency];
+      return acc;
+    }, {} as Record<string, number>);
+
+  const reserveByCurrency = active
+    .filter(r => !FREQUENT_FREQS.has(r.frequency))
+    .reduce((acc, r) => {
+      acc[r.currency] = (acc[r.currency] ?? 0) + r.amount * FREQ_MONTHLY_MULT[r.frequency];
+      return acc;
+    }, {} as Record<string, number>);
+
+  const sortCurrencies = ([a]: [string, number], [b]: [string, number]) =>
+    a === "UY$" ? -1 : b === "UY$" ? 1 : a.localeCompare(b);
+  const nextMonthEntries = Object.entries(nextMonthByCurrency).sort(sortCurrencies);
+  const reserveEntries = Object.entries(reserveByCurrency).sort(sortCurrencies);
+  const hasReserve = reserveEntries.length > 0;
   const installmentsInProgress = active.filter(
     (r) => r.type === "installment"
   ).length;
@@ -234,15 +251,64 @@ export function RecurringExpenses() {
       {/* KPI row */}
       <div className="recurring-kpi-row">
         <div className="kpi-card">
-          <p className="kpi-label">GASTO FIJO MENSUAL</p>
-          <p className="kpi-value">
-            {primaryCurrency}{" "}
-            {monthlyTotal.toLocaleString("es-UY", {
-              minimumFractionDigits: 0,
-              maximumFractionDigits: 0,
-            })}
-          </p>
-          <p className="kpi-sub">estimado por mes</p>
+          <div style={{ display: "flex", gap: 0, alignItems: "flex-start" }}>
+            {/* Left: Próximo mes */}
+            <div style={{
+              flex: 1,
+              paddingRight: hasReserve ? 16 : 0,
+              borderRight: hasReserve ? "1px solid var(--border-color)" : "none",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                <Calendar size={12} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                <p className="kpi-label" style={{ margin: 0 }}>PRÓXIMO MES</p>
+              </div>
+              {nextMonthEntries.length === 0 ? (
+                <p className="kpi-value">—</p>
+              ) : (
+                nextMonthEntries.map(([cur, total]) => (
+                  <p
+                    key={cur}
+                    className={`kpi-value${nextMonthEntries.length > 1 ? " kpi-value--sm" : ""}`}
+                  >
+                    {cur}{" "}
+                    {total.toLocaleString("es-UY", {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 0,
+                    })}
+                  </p>
+                ))
+              )}
+              <p className="kpi-sub">
+                {nextMonthEntries.length === 0 ? "sin pagos frecuentes" : "pagos del mes"}
+              </p>
+            </div>
+
+            {/* Right: Reserva mensual — only shown when infrequent expenses exist */}
+            {hasReserve && (
+              <div style={{ flex: 1, paddingLeft: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                  <Wallet size={12} style={{ color: "var(--color-accent)", flexShrink: 0 }} />
+                  <p className="kpi-label" style={{ margin: 0, color: "var(--color-accent)" }}>
+                    RESERVA /MES
+                  </p>
+                </div>
+                {reserveEntries.map(([cur, total]) => (
+                  <p
+                    key={cur}
+                    className={`kpi-value${reserveEntries.length > 1 ? " kpi-value--sm" : ""}`}
+                    style={{ color: "var(--color-accent)" }}
+                  >
+                    {cur}{" "}
+                    {total.toLocaleString("es-UY", {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 0,
+                    })}
+                  </p>
+                ))}
+                <p className="kpi-sub">para pagos poco frecuentes</p>
+              </div>
+            )}
+          </div>
         </div>
         <div className="kpi-card">
           <p className="kpi-label">RECURRENTES ACTIVOS</p>
