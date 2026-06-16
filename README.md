@@ -24,7 +24,12 @@ A mobile-first, AI-powered expense tracker with receipt scanning, group manageme
 - **Group management** — create groups, invite members by email; invitees receive a Supabase auth email (new users) or see the invitation in-app (existing users)
 - **In-app invitations** — pending invitations shown with Accept/Decline UI; accepting automatically joins the group
 - **Admin gating** — only group admins can add, edit, or delete vendors and vendor mappings; members have read-only access
-- **Recurring expenses** — register subscriptions (Netflix, gym), installment plans (credit card purchases split across N months), and periodic bills (electricity, water); each template auto-generates approved transactions on their due dates when the Recurrentes page is opened; installment cards show a live progress bar (e.g. "5/12 cuotas — 42%") and auto-complete when all installments are paid; cancel, edit, or delete (template only or template + all linked transactions)
+- **Recurring expenses** — register subscriptions (Netflix, gym), installment plans (credit card purchases split across N months), and periodic bills (electricity, water); each template auto-generates approved transactions on their due dates when the Recurrentes page is opened; installment cards show a live progress bar (e.g. "5/12 cuotas — 42%") and auto-complete when all installments are paid; cancel, edit, or delete (template only or template + all linked transactions); custom category per recurring expense; KPI summary row showing monthly fixed total, active count, and installments in progress
+- **Shopping List** — monthly smart shopping list derived from purchase history; shows canonical product names with average quantity per purchase; cold-start fallback for new groups with no history
+- **Product catalog management** — admins can rename and delete canonical products inline from the Product Audit page; persistent confirmed mappings stored in `product_raw_mappings` (mirrors vendor raw mappings); deleting a mapping resets auto-matched items to the scan queue so they re-surface on the next scan; two-panel audit layout (left: review queue, right: sticky catalog + confirmed mappings)
+- **Dark / light theme** — toggle in the nav bar, persisted to `localStorage`; full CSS variable–based theming applied app-wide
+- **Bilingual UI (ES / EN)** — full Spanish and English translation via `react-i18next`; language switch available in the nav bar
+- **Processed images** — browsable history of all receipt images uploaded by the user
 - **14-category taxonomy** — fixed set of categories for consistent analytics (see requirements doc)
 - **1% math tolerance** — item totals and receipt totals validated before approval
 - **Auth** — email/password and Google SSO via Supabase Auth
@@ -37,7 +42,7 @@ A mobile-first, AI-powered expense tracker with receipt scanning, group manageme
 |---|---|
 | Frontend | React 19, TypeScript, Vite, react-router-dom v7 |
 | Data fetching | TanStack Query v5 |
-| UI | Lucide icons, Sonner toasts, Recharts |
+| UI | Lucide icons, Sonner toasts, Recharts, react-i18next (ES/EN) |
 | Image handling | heic2any (HEIC → JPEG, client-side) |
 | Backend | Supabase — Postgres + RLS, Auth, Storage, Edge Functions (Deno) |
 | AI | Google Gemini 2.5 Flash via REST API |
@@ -62,28 +67,38 @@ src/
     GroupManager.tsx           group creation and member invitations
     Invitations.tsx            pending invitations with Accept/Decline UI
     Analytics.tsx              7-tab analytics dashboard (Recharts); Pareto tab has canonical/raw vendor toggle
-    ProductAudit.tsx           fuzzy-match review — map item names to product catalog
+    ProductAudit.tsx           two-panel audit: left = fuzzy-match review queue; right = product catalog + confirmed mappings
     VendorAudit.tsx            vendor normalization — review queue, vendor catalog, confirmed mappings
-    RecurringExpenses.tsx      recurring expense list with KPIs, type-colored cards, installment progress
+    RecurringExpenses.tsx      recurring expense list with KPI summary, type-colored cards, installment progress
     AddRecurringExpense.tsx    create subscriptions, installment plans, and periodic bills
     EditRecurringExpense.tsx   edit, cancel, or delete recurring expenses
+    ShoppingList.tsx           monthly shopping list auto-generated from purchase history
+    ProcessedImages.tsx        browsable history of uploaded receipt images
     Profile.tsx                user profile
 
   components/
-    NavBar.tsx                 desktop sidebar nav with badge counts
+    NavBar.tsx                 desktop sidebar nav with badge counts and theme/language toggles
     MobileMenu.tsx             mobile drawer nav with badge counts
+    ConfirmModal.tsx           reusable in-app confirmation dialog (replaces browser confirm())
     ProtectedRoute.tsx
     PublicOnlyRoute.tsx
+    UploadReceiptPanel.tsx     reusable receipt upload panel component
 
   lib/
     supabase.ts                Supabase client
     auth.tsx                   auth state context
+    theme.tsx                  ThemeProvider + useTheme hook; dark/light toggle persisted to localStorage
     fuzzyMatch.ts              Fuse.js fuzzy matching + normalization pipeline (product items)
     fuzzyMatchVendor.ts        vendor matching — Fuse.js + 5-char token overlap fallback
     recurringExpenses.ts       client-side generation logic for recurring expense templates
     usePendingAuditCount.ts    TanStack Query hook — pending product audit count
-    usePendingVendorAuditCount.ts  TanStack Query hook — pending vendor audit count
+    usePendingVendorCount.ts   TanStack Query hook — pending vendor audit count
     usePendingInvitationsCount.ts  TanStack Query hook — pending invitations count
+
+  i18n/
+    index.ts                   react-i18next setup (ES default, EN available)
+    locales/en.json            English translations
+    locales/es.json            Spanish translations
 
   types.ts                    canonical TypeScript types
 
@@ -107,6 +122,9 @@ supabase/
     0018_vendor_raw_mappings.sql  vendor_raw_mappings table + updated RPCs to persist confirmed mappings
     0019_personal_groups.sql      is_personal flag on groups + trigger to auto-create personal group on signup
     0020_recurring_expenses.sql   recurring_expenses table + recurring_expense_id / installment_number on transactions
+    0021_product_admin_controls.sql  product_raw_mappings table + rename_product / delete_product / delete_product_raw_mapping RPCs
+    0022_fix_products_null_group_id.sql  back-fills group_id on products that were inserted without it (RLS fix)
+    0023_fix_delete_mapping_resets_status.sql  delete mapping RPCs now reset mapping_status on affected items/transactions
   functions/
     process-receipts/         receipt_id + image_data → Gemini 2.5 Flash → transactions + items + products
     send-invitation/          saves invitation to DB + calls inviteUserByEmail for new users
@@ -234,3 +252,4 @@ These rules are enforced throughout and must not be relaxed:
 | Phase 5 — Groups, invitations, in-app notification | Complete |
 | Phase 6 — Vendor normalization (fuzzy matching, VendorAudit, persistent mappings, admin controls) | Complete |
 | Phase 7 — Recurring expenses (subscriptions, installments, periodic bills; auto-generation; cancel/delete) | Complete |
+| Phase 8 — Shopping list, product admin controls, dark/light theme, ES/EN bilingual support | Complete |

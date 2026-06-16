@@ -71,6 +71,7 @@ The database is normalized in Supabase Postgres to allow accurate time-series an
 | `products` | `id`, `group_id`, `name`, `category`, `created_at` | Shared product catalog. Unique on `(group_id, name)`. |
 | `vendors` | `id`, `group_id`, `canonical_name`, `created_at` | Canonical vendor list per group. Unique on `(group_id, canonical_name)`. |
 | `vendor_raw_mappings` | `id`, `group_id`, `raw_name`, `vendor_id`, `created_at` | Persistent raw→canonical mappings. Unique on `(group_id, raw_name)`. |
+| `product_raw_mappings` | `id`, `group_id`, `raw_name`, `product_id`, `created_at` | Persistent raw item name → canonical product mappings. Unique on `(group_id, lower(raw_name))`. Mirrors `vendor_raw_mappings`. |
 | `invitations` | `id`, `group_id`, `invited_email`, `invited_by`, `status` (`pending`/`accepted`/`declined`), `created_at`, `updated_at` | RLS uses `auth.jwt() ->> 'email'` for `invited_email` matching (not `auth.users` subquery). |
 | `recurring_expenses` | `id`, `group_id`, `user_id`, `name`, `vendor_name`, `type` (`subscription`/`installment`/`periodic_bill`), `category`, `currency`, `amount`, `total_purchase_amount`, `total_installments`, `frequency`, `start_date`, `end_date`, `is_active`, `last_generated_date`, `notes` | Templates for auto-generating transactions. `last_generated_date` is the watermark used to avoid duplicate generation. |
 
@@ -250,6 +251,51 @@ Generated transactions appear in the expense list and analytics for their respec
 #### 7.7 Migration
 
 `0020_recurring_expenses.sql` — creates `recurring_expenses` table with full RLS (mirrors `transactions` group membership policies) and adds `recurring_expense_id` + `installment_number` to `transactions`.
+
+### Phase 8 — Shopping List, Product Admin Controls, Theme & i18n ✅ Complete
+
+#### 8.1 Shopping List (`ShoppingList.tsx`, `/shopping-list`)
+
+- Auto-generated monthly shopping list derived from the group's purchase history.
+- Groups items by canonical product name and shows the average quantity purchased per visit.
+- Cold-start fallback: when a group has no mapped purchase history, the page shows a helpful empty state rather than a blank list.
+- Reflects confirmed product mappings so the list uses clean canonical names instead of raw receipt strings.
+
+#### 8.2 Product Admin Controls & Confirmed Mappings
+
+Mirrors the vendor admin controls introduced in Phase 6:
+
+- **Product catalog panel** — the Product Audit page adopts a two-panel layout: left panel holds the review queue (potential matches + new candidates); right panel shows the canonical product catalog and confirmed mappings, sticky on desktop.
+- **Inline rename / delete** — group admins can rename or delete canonical products directly from the right panel.
+- **`product_raw_mappings` table** (`0021_product_admin_controls.sql`) — every confirmed raw item name → canonical product decision is stored persistently. Future scans auto-match the same raw name without manual review.
+- **Confirmed mappings panel** — admins can view all confirmed mappings and delete individual ones. Deleting a mapping resets the `mapping_status` of all previously auto-matched `transaction_items` to `NULL` so they re-appear in the audit queue on the next scan (`0023`).
+- **Admin-only RPCs**: `rename_product`, `delete_product`, `delete_product_raw_mapping` — all security-definer functions that enforce admin role checks.
+- **RLS fix** (`0022`): Products that were previously inserted without `group_id` (a bug in migration 0009) were invisible through RLS. Migration 0022 back-fills `group_id` from `transaction_items` references and removes orphaned products.
+- **Override flow improvement** — the "Wrong match?" override in the Potential Matches section now supports typing a new canonical name (creates a new product via `approve_product_mapping`) in addition to selecting from the existing catalog, matching the behaviour of the New Candidates section.
+
+#### 8.3 Dark / Light Theme
+
+- `ThemeProvider` and `useTheme` hook in `src/lib/theme.tsx`.
+- Theme stored in `localStorage`; applied as a `data-theme` attribute on `<html>` driving CSS custom property overrides.
+- Toggle button in `NavBar` and `MobileMenu`.
+
+#### 8.4 Bilingual UI — Spanish / English
+
+- Full translation coverage via `react-i18next`.
+- Default language: Spanish (`es`). English (`en`) available as an alternative.
+- Translation files: `src/i18n/locales/es.json` and `src/i18n/locales/en.json`.
+- Language toggle in the nav bar; choice persisted to `localStorage`.
+
+#### 8.5 Recurring Expenses Improvements
+
+- **Custom category** — each recurring expense template can now have its own category; auto-generated transactions inherit it.
+- **KPI split** — the `/recurring` summary row now shows separate KPI chips: monthly fixed total, active subscription count, and active installment count.
+- **In-app confirm dialog** — cancel and delete actions use the shared `ConfirmModal` component instead of the browser's native `confirm()`.
+
+#### 8.6 UX — In-App Confirmation Dialogs
+
+- Replaced all `window.confirm()` calls app-wide with the shared `ConfirmModal` component (dark-mode aware, styled, non-blocking).
+- Affected pages: `ProductAudit.tsx`, `VendorAudit.tsx`, `EditRecurringExpense.tsx`.
 
 ---
 
