@@ -253,14 +253,14 @@ function ProductCombobox({
   const ref = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
-    if (!value.trim()) return products.slice(0, 8);
+    if (!value.trim()) return products;
     const q = normalize(value);
     const matches = products.filter((p) => {
       const name = normalize(p.name);
       if (name.includes(q) || q.includes(name)) return true;
       return name.split(/[\s\W]+/).filter((w) => w.length >= 3).some((token) => q.includes(token));
     });
-    return (matches.length > 0 ? matches : products).slice(0, 8);
+    return matches.length > 0 ? matches : products;
   }, [value, products]);
 
   useEffect(() => {
@@ -293,7 +293,8 @@ function ProductCombobox({
           border: "1px solid var(--border-color)",
           borderRadius: 7,
           marginTop: 3,
-          overflow: "hidden",
+          maxHeight: 240,
+          overflowY: "auto",
           boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
         }}>
           {filtered.map((p) => (

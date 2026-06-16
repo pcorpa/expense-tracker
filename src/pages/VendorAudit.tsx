@@ -228,14 +228,14 @@ function VendorCombobox({
   const ref = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
-    if (!value.trim()) return vendors.slice(0, 8);
+    if (!value.trim()) return vendors;
     const q = normalize(value);
     const matches = vendors.filter((v) => {
       const canonical = normalize(v.canonical_name);
       if (canonical.includes(q) || q.includes(canonical)) return true;
       return canonical.split(/[\s\W]+/).filter((w) => w.length >= 3).some((token) => q.includes(token));
     });
-    return (matches.length > 0 ? matches : vendors).slice(0, 8);
+    return matches.length > 0 ? matches : vendors;
   }, [value, vendors]);
 
   useEffect(() => {
@@ -268,7 +268,8 @@ function VendorCombobox({
           border: "1px solid var(--border-color)",
           borderRadius: 7,
           marginTop: 3,
-          overflow: "hidden",
+          maxHeight: 240,
+          overflowY: "auto",
           boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
         }}>
           {filtered.map((v) => (
