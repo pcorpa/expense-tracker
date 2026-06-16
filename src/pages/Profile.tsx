@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 import type { DateFormat, Profile } from "../types";
 
 export function Profile() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -57,7 +59,7 @@ export function Profile() {
       return;
     }
 
-    setMessage("Profile updated successfully.");
+    setMessage(t("profile.savedSuccess"));
     setProfile((prev) =>
       prev ? { ...prev, first_name: firstName, last_name: lastName, date_format: dateFormat } : null,
     );
@@ -67,38 +69,36 @@ export function Profile() {
     <main className="page">
       <div className="page__header">
         <div>
-          <p className="eyebrow">Profile</p>
-          <h1>Your account</h1>
-          <p>
-            Manage your account and review the tracking status of your uploads.
-          </p>
+          <p className="eyebrow">{t("profile.eyebrow")}</p>
+          <h1>{t("profile.yourAccount")}</h1>
+          <p>{t("profile.manageDesc")}</p>
         </div>
       </div>
 
       <div className="content-block profile-card">
         <form className="form-grid" onSubmit={handleSubmit}>
           <label>
-            First name
+            {t("profile.firstName")}
             <input
               value={firstName}
               onChange={(event) => setFirstName(event.target.value)}
-              placeholder="Enter your first name"
+              placeholder={t("profile.firstNamePlaceholder")}
             />
           </label>
           <label>
-            Last name
+            {t("profile.lastName")}
             <input
               value={lastName}
               onChange={(event) => setLastName(event.target.value)}
-              placeholder="Enter your last name"
+              placeholder={t("profile.lastNamePlaceholder")}
             />
           </label>
           <label>
-            Email
+            {t("profile.email")}
             <input value={profile?.email || user?.email || ""} disabled />
           </label>
           <label>
-            Date format
+            {t("profile.dateFormat")}
             <select
               value={dateFormat}
               onChange={(e) => setDateFormat(e.target.value as DateFormat)}
@@ -111,7 +111,7 @@ export function Profile() {
           {message ? <div className="alert">{message}</div> : null}
 
           <button type="submit" className="button" disabled={loading}>
-            {loading ? "Saving…" : "Save changes"}
+            {loading ? t("profile.saving") : t("profile.saveBtn")}
           </button>
         </form>
       </div>

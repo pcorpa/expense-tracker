@@ -1,50 +1,39 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, RefreshCw, Trash2, XCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 import type { RecurringExpense, RecurringFrequency } from "../types";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { countPaidInstallments, computeInitialLastGeneratedDate } from "../lib/recurringExpenses";
 
-const CANCEL_LABEL: Record<string, string> = {
-  subscription: "Cancelar suscripción",
-  installment: "Cancelar cuotas pendientes",
-  periodic_bill: "Cancelar gasto fijo",
-};
-
-const CANCEL_BODY: Record<string, string> = {
-  subscription: "No se generarán nuevas transacciones. Las existentes quedan en el registro normalmente.",
-  installment: "Las cuotas restantes no se generarán. Las transacciones ya registradas quedan en el historial.",
-  periodic_bill: "No se generarán nuevas transacciones. Las existentes quedan en el registro normalmente.",
-};
-
-const FIXED_CATEGORIES = [
-  "Comida",
-  "Limpieza",
-  "Salud",
-  "Entretenimiento",
-  "Hogar",
-  "Transporte",
-  "Vestimenta",
-  "Restaurante",
-  "Cuidado Personal",
-  "Mascotas",
-  "Servicios",
-  "Educación",
-  "Tecnología",
-  "Otro",
+const FIXED_CATEGORIES: { value: string; i18nKey: string }[] = [
+  { value: "Comida", i18nKey: "categories.comida" },
+  { value: "Limpieza", i18nKey: "categories.limpieza" },
+  { value: "Salud", i18nKey: "categories.salud" },
+  { value: "Entretenimiento", i18nKey: "categories.entretenimiento" },
+  { value: "Hogar", i18nKey: "categories.hogar" },
+  { value: "Transporte", i18nKey: "categories.transporte" },
+  { value: "Vestimenta", i18nKey: "categories.vestimenta" },
+  { value: "Restaurante", i18nKey: "categories.restaurante" },
+  { value: "Cuidado Personal", i18nKey: "categories.cuidadoPersonal" },
+  { value: "Mascotas", i18nKey: "categories.mascotas" },
+  { value: "Servicios", i18nKey: "categories.servicios" },
+  { value: "Educación", i18nKey: "categories.educacion" },
+  { value: "Tecnología", i18nKey: "categories.tecnologia" },
+  { value: "Otro", i18nKey: "categories.otro" },
 ];
 
-const FREQUENCIES: { value: RecurringFrequency; label: string }[] = [
-  { value: "weekly", label: "Semanal" },
-  { value: "biweekly", label: "Quincenal" },
-  { value: "monthly", label: "Mensual" },
-  { value: "bimonthly", label: "Bimestral" },
-  { value: "quarterly", label: "Trimestral" },
-  { value: "every4months", label: "Cada 4 meses" },
-  { value: "every6months", label: "Semestral" },
-  { value: "annual", label: "Anual" },
+const FREQUENCY_VALUES: RecurringFrequency[] = [
+  "weekly",
+  "biweekly",
+  "monthly",
+  "bimonthly",
+  "quarterly",
+  "every4months",
+  "every6months",
+  "annual",
 ];
 
 type DeleteMode = "template_only" | "all" | null;
@@ -63,6 +52,24 @@ export function EditRecurringExpense() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
+
+  const CANCEL_LABEL: Record<string, string> = {
+    subscription: t("recurring.cancelSubscription"),
+    installment: t("recurring.cancelInstallments"),
+    periodic_bill: t("recurring.cancelBill"),
+  };
+
+  const CANCEL_BODY: Record<string, string> = {
+    subscription: t("recurring.cancelBodySubscription"),
+    installment: t("recurring.cancelBodyInstallment"),
+    periodic_bill: t("recurring.cancelBodyPeriodicBill"),
+  };
+
+  const FREQUENCIES = FREQUENCY_VALUES.map((v) => ({
+    value: v,
+    label: t(`frequencies.${v}`),
+  }));
 
   const [item, setItem] = useState<RecurringExpense | null>(null);
   const [name, setName] = useState("");
@@ -106,7 +113,7 @@ export function EditRecurringExpense() {
         setItem(data);
         setName(data.name);
         setVendorName(data.vendor_name ?? "");
-        if (FIXED_CATEGORIES.includes(data.category)) {
+        if (FIXED_CATEGORIES.some((c) => c.value === data.category)) {
           setCategory(data.category);
         } else {
           setCategory("Otro");
@@ -189,7 +196,7 @@ export function EditRecurringExpense() {
         .gt("installment_number", currentInstallment);
 
       if (txsToDelete && txsToDelete.length > 0) {
-        const txIds = txsToDelete.map((t: any) => t.id);
+        const txIds = txsToDelete.map((tx: any) => tx.id);
         await supabase.from("transaction_items").delete().in("transaction_id", txIds);
         await supabase.from("transactions").delete().in("id", txIds);
       }
@@ -227,14 +234,13 @@ export function EditRecurringExpense() {
     setDeleting(true);
 
     if (deleteMode === "all") {
-      // Delete transaction_items first (no cascade on that FK), then transactions
       const { data: txs } = await supabase
         .from("transactions")
         .select("id")
         .eq("recurring_expense_id", id!);
 
       if (txs && txs.length > 0) {
-        const txIds = txs.map((t: any) => t.id);
+        const txIds = txs.map((tx: any) => tx.id);
         await supabase
           .from("transaction_items")
           .delete()
@@ -290,10 +296,10 @@ export function EditRecurringExpense() {
           }}
         >
           <ArrowLeft size={14} />
-          Volver
+          {t("common.back")}
         </button>
 
-        <p className="page__eyebrow">EDITAR RECURRENTE</p>
+        <p className="page__eyebrow">{t("recurring.editEyebrow")}</p>
 
         <div
           style={{
@@ -318,7 +324,7 @@ export function EditRecurringExpense() {
                 }}
               >
                 <span className="active-pulse" />
-                Activo
+                {t("recurring.active")}
               </span>
             ) : (
               <span
@@ -336,12 +342,11 @@ export function EditRecurringExpense() {
                   letterSpacing: "0.3px",
                 }}
               >
-                INACTIVO
+                {t("recurring.inactive")}
               </span>
             )}
           </div>
 
-          {/* Header action buttons */}
           {!showCancelConfirm && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {item.is_active && (
@@ -352,7 +357,7 @@ export function EditRecurringExpense() {
                   style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
                 >
                   <XCircle size={13} />
-                  {CANCEL_LABEL[item.type] ?? "Cancelar"}
+                  {CANCEL_LABEL[item.type] ?? t("common.cancel")}
                 </button>
               )}
               <button
@@ -369,13 +374,12 @@ export function EditRecurringExpense() {
                 }}
               >
                 <Trash2 size={13} />
-                Eliminar
+                {t("common.delete")}
               </button>
             </div>
           )}
         </div>
 
-        {/* Inline cancel confirmation */}
         {showCancelConfirm && (
           <div
             style={{
@@ -394,7 +398,7 @@ export function EditRecurringExpense() {
                 marginBottom: 4,
               }}
             >
-              ¿Confirmar cancelación?
+              {t("recurring.confirmCancelTitle")}
             </p>
             <p
               style={{
@@ -403,14 +407,14 @@ export function EditRecurringExpense() {
                 marginBottom: 12,
               }}
             >
-              {CANCEL_BODY[item.type] ?? "No se generarán nuevas transacciones."}
+              {CANCEL_BODY[item.type] ?? t("recurring.confirmCancelText")}
             </p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button
                 className="button button--secondary button--small"
                 onClick={() => setShowCancelConfirm(false)}
               >
-                No, volver
+                {t("recurring.cancelNo")}
               </button>
               <button
                 className="button button--small"
@@ -431,7 +435,7 @@ export function EditRecurringExpense() {
                     style={{ animation: "spin 1s linear infinite" }}
                   />
                 )}
-                Sí, cancelar
+                {t("recurring.cancelYes")}
               </button>
             </div>
           </div>
@@ -440,10 +444,9 @@ export function EditRecurringExpense() {
 
       <div className="content-block">
         <form onSubmit={handleSave} className="form-grid">
-          {/* Name + Vendor */}
           <div style={twoColStyle}>
             <label>
-              Nombre *
+              {t("recurring.nameLabel")} *
               <input
                 type="text"
                 value={name}
@@ -451,11 +454,11 @@ export function EditRecurringExpense() {
                 style={showErrors && !name.trim() ? INPUT_ERR : {}}
               />
               {showErrors && !name.trim() && (
-                <span style={ERR}>Campo requerido</span>
+                <span style={ERR}>{t("common.required")}</span>
               )}
             </label>
             <label>
-              Proveedor / empresa
+              {t("recurring.vendorLabel")}
               <input
                 type="text"
                 value={vendorName}
@@ -464,27 +467,25 @@ export function EditRecurringExpense() {
             </label>
           </div>
 
-          {/* Category + Currency */}
           <div style={twoColStyle}>
             <label>
-              Categoría
+              {t("recurring.categoryLabel")}
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
               >
                 {FIXED_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                  <option key={c.value} value={c.value}>
+                    {t(c.i18nKey)}
                   </option>
                 ))}
               </select>
             </label>
             {category === "Otro" && (
               <label style={{ gridColumn: "1 / -1" }}>
-                Nombre de categoría
+                {t("recurring.customCategoryLabel")}
                 <input
                   type="text"
-                  placeholder="Ej: Médico, Deporte, Mascotas…"
                   value={customCategory}
                   onChange={(e) => setCustomCategory(e.target.value)}
                   autoFocus
@@ -492,22 +493,21 @@ export function EditRecurringExpense() {
               </label>
             )}
             <label>
-              Moneda
+              {t("recurring.currencyLabel")}
               <select
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
               >
-                <option value="UY$">UY$ (Pesos)</option>
-                <option value="US$">US$ (Dólares)</option>
-                <option value="EUR">EUR (Euros)</option>
+                <option value="UY$">{t("recurring.currencyPesos")}</option>
+                <option value="US$">{t("recurring.currencyDollars")}</option>
+                <option value="EUR">{t("recurring.currencyEuros")}</option>
               </select>
             </label>
           </div>
 
-          {/* Amount — conditional on type */}
           {item.type !== "installment" ? (
             <label>
-              Monto por período *
+              {t("recurring.amountPerPeriod")} *
               <input
                 type="number"
                 min="0.01"
@@ -521,14 +521,14 @@ export function EditRecurringExpense() {
                 }
               />
               {showErrors && (!amount || Number(amount) <= 0) && (
-                <span style={ERR}>Ingresá un monto válido</span>
+                <span style={ERR}>{t("recurring.invalidAmount")}</span>
               )}
             </label>
           ) : (
             <>
               <div style={twoColStyle}>
                 <label>
-                  Monto total de compra *
+                  {t("recurring.totalPurchaseAmountLabel")} *
                   <input
                     type="number"
                     min="0.01"
@@ -538,7 +538,7 @@ export function EditRecurringExpense() {
                   />
                 </label>
                 <label>
-                  Número de cuotas *
+                  {t("recurring.numInstallmentsLabel")} *
                   <input
                     type="number"
                     min="2"
@@ -567,7 +567,7 @@ export function EditRecurringExpense() {
                       color: "var(--text-secondary)",
                     }}
                   >
-                    Monto por cuota
+                    {t("recurring.installmentAmountLabel")}
                   </span>
                   <span
                     style={{
@@ -608,7 +608,7 @@ export function EditRecurringExpense() {
                       cursor: "pointer",
                     }}
                   >
-                    Cuota actual
+                    {t("recurring.currentInstallmentLabel")}
                   </label>
                   <input
                     id="current-installment"
@@ -633,7 +633,7 @@ export function EditRecurringExpense() {
                   <span
                     style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}
                   >
-                    de {totalInstallments} cuotas
+                    {t("recurring.ofInstallments", { total: totalInstallments })}
                   </span>
                   {currentInstallment !== countPaidInstallments(item) && (
                     <span
@@ -655,8 +655,12 @@ export function EditRecurringExpense() {
                       }}
                     >
                       {currentInstallment > countPaidInstallments(item)
-                        ? `+${currentInstallment - countPaidInstallments(item)} cuotas omitidas`
-                        : `−${countPaidInstallments(item) - currentInstallment} cuotas eliminadas`}
+                        ? t("recurring.installmentsSkipped", {
+                            count: currentInstallment - countPaidInstallments(item),
+                          })
+                        : t("recurring.installmentsDeleted", {
+                            count: countPaidInstallments(item) - currentInstallment,
+                          })}
                     </span>
                   )}
                 </div>
@@ -664,10 +668,9 @@ export function EditRecurringExpense() {
             </>
           )}
 
-          {/* Frequency + Start date */}
           <div style={twoColStyle}>
             <label>
-              Frecuencia
+              {t("recurring.frequencyLabel")}
               <select
                 value={frequency}
                 onChange={(e) =>
@@ -682,7 +685,7 @@ export function EditRecurringExpense() {
               </select>
             </label>
             <label>
-              Fecha de inicio
+              {t("recurring.startDate")}
               <input
                 type="date"
                 value={startDate}
@@ -692,9 +695,9 @@ export function EditRecurringExpense() {
           </div>
 
           <label>
-            Notas{" "}
+            {t("recurring.notesLabel")}{" "}
             <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
-              (opcional)
+              {t("recurring.notesOptional")}
             </span>
             <textarea
               value={notes}
@@ -714,8 +717,7 @@ export function EditRecurringExpense() {
                 fontSize: "0.85rem",
               }}
             >
-              Este gasto recurrente está cancelado o completado. Las
-              transacciones pasadas se conservan en el registro.
+              {t("recurring.inactiveWarning")}
             </div>
           )}
 
@@ -742,7 +744,7 @@ export function EditRecurringExpense() {
               className="button button--secondary"
               onClick={() => navigate("/recurring")}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
             <button
               type="submit"
@@ -756,7 +758,7 @@ export function EditRecurringExpense() {
                   style={{ animation: "spin 1s linear infinite" }}
                 />
               )}
-              {saving ? "Guardando…" : "Guardar cambios"}
+              {saving ? t("recurring.saving") : t("recurring.saveChanges")}
             </button>
           </div>
         </form>
@@ -764,8 +766,8 @@ export function EditRecurringExpense() {
 
       <ConfirmModal
         open={showConfirmModal}
-        title="Guardar cambios"
-        confirmLabel="Guardar cambios"
+        title={t("recurring.saveChanges")}
+        confirmLabel={t("recurring.saveChanges")}
         onCancel={() => setShowConfirmModal(false)}
         onConfirm={doSave}
         loading={saving}
@@ -774,40 +776,39 @@ export function EditRecurringExpense() {
           <>
             {currentInstallment > countPaidInstallments(item) ? (
               <p style={{ margin: "0 0 10px" }}>
-                La cuota actual pasará de{" "}
-                <strong>{countPaidInstallments(item)}</strong> a{" "}
-                <strong>{currentInstallment}</strong>. Las cuotas{" "}
-                {countPaidInstallments(item) + 1}–{currentInstallment} no serán
-                registradas.
+                {t("recurring.confirmInstallmentSkip", {
+                  from: countPaidInstallments(item),
+                  to: currentInstallment,
+                  rangeStart: countPaidInstallments(item) + 1,
+                  rangeEnd: currentInstallment,
+                })}
               </p>
             ) : (
               <p style={{ margin: "0 0 10px" }}>
-                La cuota actual volverá de{" "}
-                <strong>{countPaidInstallments(item)}</strong> a{" "}
-                <strong>{currentInstallment}</strong>. Se eliminarán las
-                transacciones de las cuotas {currentInstallment + 1}–
-                {countPaidInstallments(item)}.
+                {t("recurring.confirmInstallmentBack", {
+                  from: countPaidInstallments(item),
+                  to: currentInstallment,
+                  rangeStart: currentInstallment + 1,
+                  rangeEnd: countPaidInstallments(item),
+                })}
               </p>
             )}
             <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.83rem" }}>
-              Los demás cambios se aplicarán a las próximas transacciones
-              generadas.
+              {t("recurring.confirmChangesApplyNext")}
             </p>
           </>
         ) : (
           <>
             <p style={{ margin: "0 0 10px" }}>
-              Los cambios se aplicarán a las{" "}
-              <strong>próximas transacciones generadas</strong>.
+              {t("recurring.confirmChangesOnlyNext")}
             </p>
             <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.83rem" }}>
-              Las transacciones ya creadas no se modificarán.
+              {t("recurring.confirmChangesNoModify")}
             </p>
           </>
         )}
       </ConfirmModal>
 
-      {/* Delete dialog */}
       {showDeleteDialog && (
         <div
           className="delete-dialog-overlay"
@@ -825,7 +826,7 @@ export function EditRecurringExpense() {
                 color: "var(--text-primary)",
               }}
             >
-              Eliminar "{item.name}"
+              {t("recurring.deleteTitle", { name: item.name })}
             </h2>
             <p
               style={{
@@ -834,7 +835,7 @@ export function EditRecurringExpense() {
                 marginBottom: 20,
               }}
             >
-              ¿Qué querés eliminar?
+              {t("recurring.deleteQuestion")}
             </p>
 
             <div
@@ -844,14 +845,14 @@ export function EditRecurringExpense() {
                 [
                   {
                     value: "template_only" as const,
-                    label: "Solo la plantilla",
-                    desc: "Las transacciones ya registradas se conservan como gastos normales.",
+                    label: t("recurring.templateOnly"),
+                    desc: t("recurring.templateOnlyDesc"),
                     danger: false,
                   },
                   {
                     value: "all" as const,
-                    label: "Eliminar todo",
-                    desc: "Se elimina la plantilla Y todas las transacciones generadas por este recurrente.",
+                    label: t("recurring.deleteAll"),
+                    desc: t("recurring.deleteAllDesc"),
                     danger: true,
                   },
                 ] as const
@@ -924,7 +925,7 @@ export function EditRecurringExpense() {
                   setDeleteMode(null);
                 }}
               >
-                Cancelar
+                {t("common.cancel")}
               </button>
               <button
                 className="button button--small"
@@ -946,7 +947,7 @@ export function EditRecurringExpense() {
                     style={{ animation: "spin 1s linear infinite" }}
                   />
                 )}
-                {deleting ? "Eliminando…" : "Confirmar eliminación"}
+                {deleting ? t("recurring.deleting") : t("recurring.confirmDeleteBtn")}
               </button>
             </div>
           </div>

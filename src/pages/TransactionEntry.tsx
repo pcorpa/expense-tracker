@@ -1,25 +1,26 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 import type { Group } from "../types";
 
-const FIXED_CATEGORIES = [
-  { id: "comida", label: "Comida" },
-  { id: "limpieza", label: "Limpieza" },
-  { id: "salud", label: "Salud" },
-  { id: "entretenimiento", label: "Entretenimiento" },
-  { id: "hogar", label: "Hogar" },
-  { id: "transporte", label: "Transporte" },
-  { id: "vestimenta", label: "Vestimenta" },
-  { id: "restaurante", label: "Restaurante" },
-  { id: "cuidado_personal", label: "Cuidado Personal" },
-  { id: "mascotas", label: "Mascotas" },
-  { id: "servicios", label: "Servicios" },
-  { id: "educacion", label: "Educación" },
-  { id: "tecnologia", label: "Tecnología" },
-  { id: "otro", label: "Otro" },
+const FIXED_CATEGORIES: { dbId: string; i18nKey: string }[] = [
+  { dbId: "comida",          i18nKey: "categories.comida" },
+  { dbId: "limpieza",        i18nKey: "categories.limpieza" },
+  { dbId: "salud",           i18nKey: "categories.salud" },
+  { dbId: "entretenimiento", i18nKey: "categories.entretenimiento" },
+  { dbId: "hogar",           i18nKey: "categories.hogar" },
+  { dbId: "transporte",      i18nKey: "categories.transporte" },
+  { dbId: "vestimenta",      i18nKey: "categories.vestimenta" },
+  { dbId: "restaurante",     i18nKey: "categories.restaurante" },
+  { dbId: "cuidado_personal",i18nKey: "categories.cuidadoPersonal" },
+  { dbId: "mascotas",        i18nKey: "categories.mascotas" },
+  { dbId: "servicios",       i18nKey: "categories.servicios" },
+  { dbId: "educacion",       i18nKey: "categories.educacion" },
+  { dbId: "tecnologia",      i18nKey: "categories.tecnologia" },
+  { dbId: "otro",            i18nKey: "categories.otro" },
 ];
 
 const ERR_STYLE: React.CSSProperties = {
@@ -52,6 +53,7 @@ function itemCatOk(item: TransactionItem) {
 export function TransactionEntry() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupId, setGroupId] = useState("");
@@ -63,7 +65,7 @@ export function TransactionEntry() {
   const [items, setItems] = useState<TransactionItem[]>([
     {
       product_name: "",
-      category: "comida",
+      category: FIXED_CATEGORIES[0].dbId,
       category_custom: "",
       quantity: "1",
       unit_price: "",
@@ -123,7 +125,7 @@ export function TransactionEntry() {
       ...items,
       {
         product_name: "",
-        category: "comida",
+        category: FIXED_CATEGORIES[0].dbId,
         category_custom: "",
         quantity: "1",
         unit_price: "",
@@ -261,7 +263,7 @@ export function TransactionEntry() {
     setLoading(false);
     if (itemsError) setMessage(itemsError.message);
     else {
-      setMessage("Transaction saved successfully!");
+      setMessage(t("entry.savedSuccess"));
       setTimeout(() => navigate("/transactions"), 1000);
     }
   }
@@ -269,7 +271,7 @@ export function TransactionEntry() {
   return (
     <main className="page">
       <div className="page__header">
-        <h1>New Transaction Entry</h1>
+        <h1>{t("entry.title")}</h1>
 
         <div className="entry-type-selector">
           <label className="radio-checkbox">
@@ -279,7 +281,7 @@ export function TransactionEntry() {
               checked={type === "expense"}
               onChange={() => setType("expense")}
             />
-            <span className="checkmark"></span> Expense
+            <span className="checkmark"></span> {t("entry.expense")}
           </label>
           <label className="radio-checkbox">
             <input
@@ -288,7 +290,7 @@ export function TransactionEntry() {
               checked={type === "income"}
               onChange={() => setType("income")}
             />
-            <span className="checkmark"></span> Income
+            <span className="checkmark"></span> {t("entry.income")}
           </label>
         </div>
       </div>
@@ -296,20 +298,20 @@ export function TransactionEntry() {
       <form className="content-block form-compact" onSubmit={handleSubmit}>
         <div className="form-section header-fields">
           <label>
-            Group
+            {t("entry.group")}
             <select
               value={groupId}
               onChange={(e) => setGroupId(e.target.value)}
             >
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>
-                  {g.is_personal ? "Personal (just me)" : g.name}
+                  {g.is_personal ? t("entry.personalJustMe") : g.name}
                 </option>
               ))}
             </select>
           </label>
           <label>
-            Date
+            {t("entry.date")}
             <input
               type="date"
               value={date}
@@ -318,20 +320,20 @@ export function TransactionEntry() {
           </label>
           <div style={{ marginBottom: 12 }}>
             <label style={{ marginBottom: 4 }}>
-              {type === "expense" ? "Vendor" : "Source"}
+              {type === "expense" ? t("entry.vendor") : t("entry.source")}
               <input
                 value={vendor}
                 onChange={(e) => setVendor(e.target.value)}
-                placeholder="Name"
+                placeholder={type === "expense" ? t("entry.vendor") : t("entry.source")}
                 style={showErrors && !vendor.trim() ? INPUT_ERR : undefined}
               />
             </label>
             {showErrors && !vendor.trim() && (
-              <span style={ERR_STYLE}>This field is required</span>
+              <span style={ERR_STYLE}>{t("entry.fieldRequired")}</span>
             )}
           </div>
           <label>
-            Currency
+            {t("entry.currency")}
             <select
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
@@ -346,13 +348,13 @@ export function TransactionEntry() {
         <hr />
 
         <div className="items-section">
-          <h3 className="section-title">Detailed Item Breakdown</h3>
+          <h3 className="section-title">{t("entry.detailedBreakdown")}</h3>
           {items.map((item, index) => (
             <div key={index} className="item-card-compact">
               <div className="item-main-info">
                 <div style={{ position: "relative", marginBottom: 12 }}>
                   <input
-                    placeholder="Product Name"
+                    placeholder={t("entry.productName")}
                     value={item.product_name}
                     onChange={(e) =>
                       updateItem(index, "product_name", e.target.value)
@@ -396,7 +398,7 @@ export function TransactionEntry() {
                     }}
                   />
                   {showErrors && !itemNameOk(item) && (
-                    <span style={ERR_STYLE}>Product name is required</span>
+                    <span style={ERR_STYLE}>{t("entry.productRequired")}</span>
                   )}
                   {suggestingForItemIndex === index &&
                     productSuggestions.length > 0 && (
@@ -454,15 +456,15 @@ export function TransactionEntry() {
                     }
                   >
                     {FIXED_CATEGORIES.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.label}
+                      <option key={cat.dbId} value={cat.dbId}>
+                        {t(cat.i18nKey)}
                       </option>
                     ))}
                   </select>
                   {item.category === "otro" && (
                     <>
                       <input
-                        placeholder="Custom Category"
+                        placeholder={t("entry.customCategory")}
                         value={item.category_custom}
                         onChange={(e) =>
                           updateItem(index, "category_custom", e.target.value)
@@ -470,7 +472,7 @@ export function TransactionEntry() {
                         style={showErrors && !itemCatOk(item) ? INPUT_ERR : undefined}
                       />
                       {showErrors && !itemCatOk(item) && (
-                        <span style={ERR_STYLE}>Custom category is required</span>
+                        <span style={ERR_STYLE}>{t("entry.categoryRequired")}</span>
                       )}
                     </>
                   )}
@@ -479,7 +481,7 @@ export function TransactionEntry() {
                   <input
                     type="number"
                     step="0.01"
-                    placeholder="Qty"
+                    placeholder={t("entry.qty")}
                     value={item.quantity}
                     onChange={(e) =>
                       updateItem(index, "quantity", e.target.value)
@@ -487,14 +489,14 @@ export function TransactionEntry() {
                     style={showErrors && !itemQtyOk(item) ? INPUT_ERR : undefined}
                   />
                   {showErrors && !itemQtyOk(item) && (
-                    <span style={ERR_STYLE}>Required</span>
+                    <span style={ERR_STYLE}>{t("common.required")}</span>
                   )}
                 </div>
                 <div>
                   <input
                     type="number"
                     step="0.01"
-                    placeholder="Unit Price"
+                    placeholder={t("entry.unitPrice")}
                     value={item.unit_price}
                     onChange={(e) =>
                       updateItem(index, "unit_price", e.target.value)
@@ -502,7 +504,7 @@ export function TransactionEntry() {
                     style={showErrors && !itemPriceOk(item) ? INPUT_ERR : undefined}
                   />
                   {showErrors && !itemPriceOk(item) && (
-                    <span style={ERR_STYLE}>Required</span>
+                    <span style={ERR_STYLE}>{t("common.required")}</span>
                   )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -539,13 +541,13 @@ export function TransactionEntry() {
             </div>
           ))}
           <button type="button" className="add-item-btn" onClick={addItem}>
-            + Add Another Item
+            {t("entry.addAnotherItem")}
           </button>
         </div>
 
         <div className="form-footer">
           <div className="total-container">
-            <span className="total-label">Grand Total:</span>
+            <span className="total-label">{t("entry.grandTotal")}</span>
             <span className="total-value">
               {currency} {calculatedTotal.toFixed(2)}
             </span>
@@ -555,7 +557,7 @@ export function TransactionEntry() {
 
           <div className="actions">
             <button type="submit" className="button-primary" disabled={loading}>
-              {loading ? "Saving..." : "Save Transaction"}
+              {loading ? t("entry.saving") : t("entry.saveTransaction")}
             </button>
           </div>
         </div>

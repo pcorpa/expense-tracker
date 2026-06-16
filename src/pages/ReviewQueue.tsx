@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
@@ -61,6 +62,7 @@ async function fetchFailedReceipts() {
 export function ReviewQueue() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [retrying, setRetrying] = useState<string | null>(null);
   const [approving, setApproving] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -126,7 +128,7 @@ export function ReviewQueue() {
 
     if (toleranceErrors.length > 0) {
       window.alert(
-        `Math errors detected (outside 1% tolerance):\n${toleranceErrors.join("\n")}\n\nEdit the items to fix the discrepancies before approving.`,
+        t("review.mathErrors", { details: toleranceErrors.join("\n") }),
       );
       return;
     }
@@ -151,12 +153,12 @@ export function ReviewQueue() {
     setApproving(null);
 
     if (transactionResult.error || receiptResult.error) {
-      window.alert("Failed to approve transaction. Please try again.");
+      window.alert(t("review.approveFailed"));
       return;
     }
 
     if (!transactionResult.data || transactionResult.data.length === 0) {
-      window.alert("Could not approve — the transaction was not updated. Check that you have permission.");
+      window.alert(t("review.approvePermissionError"));
       return;
     }
 
@@ -166,7 +168,7 @@ export function ReviewQueue() {
   if (query.isLoading) {
     return (
       <main className="page">
-        <p>Loading review queue…</p>
+        <p>{t("review.loading")}</p>
       </main>
     );
   }
@@ -183,18 +185,15 @@ export function ReviewQueue() {
     <main className="page">
       <div className="page__header">
         <div>
-          <p className="eyebrow">Human review</p>
-          <h1>AI-reviewed transactions</h1>
-          <p>
-            Tap an item to edit it, then approve the transaction once everything
-            looks right.
-          </p>
+          <p className="eyebrow">{t("review.eyebrow")}</p>
+          <h1>{t("review.title")}</h1>
+          <p>{t("review.subtitle")}</p>
         </div>
       </div>
 
       <div className="content-block">
         {!transactions.length && !failedQuery.data?.length && (
-          <p>No transactions need review right now.</p>
+          <p>{t("review.empty")}</p>
         )}
 
         {transactions.map((transaction) => {
@@ -206,8 +205,8 @@ export function ReviewQueue() {
               <article key={transaction.id} className="ticket-card">
                 <div className="ticket-card__header">
                   <div>
-                    <strong>AI is analyzing receipt…</strong>
-                    <span>Processing</span>
+                    <strong>{t("review.aiAnalyzing")}</strong>
+                    <span>{t("review.processing")}</span>
                   </div>
                 </div>
                 <div className="skeleton-loader">
@@ -245,7 +244,7 @@ export function ReviewQueue() {
                     className="button button--secondary button--small"
                     onClick={() => navigate(`/review/${transaction.id}/edit`)}
                   >
-                    Edit
+                    {t("review.edit")}
                   </button>
                 </div>
               </div>
@@ -289,7 +288,7 @@ export function ReviewQueue() {
                     navigate(`/review/${transaction.id}/items/new`)
                   }
                 >
-                  + Add item
+                  {t("review.addItem")}
                 </button>
               </div>
 
@@ -307,7 +306,7 @@ export function ReviewQueue() {
               >
                 <div>
                   <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                    Subtotal
+                    {t("review.subtotal")}
                   </p>
                   <p style={{ margin: 0, fontWeight: 700, fontSize: "1.2rem" }}>
                     ${subtotal.toFixed(2)}
@@ -319,7 +318,7 @@ export function ReviewQueue() {
                   onClick={() => handleApprove(transaction)}
                   disabled={approving === transaction.id}
                 >
-                  {approving === transaction.id ? "Approving…" : "Approve"}
+                  {approving === transaction.id ? t("review.approving") : t("review.approve")}
                 </button>
               </div>
             </article>
@@ -328,7 +327,7 @@ export function ReviewQueue() {
         {!!failedQuery.data?.length && (
           <>
             <h2 style={{ marginTop: 32, fontSize: "1rem", color: "var(--text-muted)" }}>
-              Failed — AI could not process
+              {t("review.failedSection")}
             </h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {failedQuery.data.map((receipt) => (
@@ -345,7 +344,7 @@ export function ReviewQueue() {
                       onClick={() => handleRetry(receipt.id)}
                       disabled={retrying === receipt.id || deleting === receipt.id || confirmDelete === receipt.id}
                     >
-                      {retrying === receipt.id ? "Retrying…" : "Retry AI"}
+                      {retrying === receipt.id ? t("review.retrying") : t("review.retryAi")}
                     </button>
                     <button
                       type="button"
@@ -369,7 +368,7 @@ export function ReviewQueue() {
                     gap: 12,
                   }}>
                     <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-muted)" }}>
-                      Delete this failed receipt? This cannot be undone.
+                      {t("review.deleteConfirm")}
                     </p>
                     <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                       <button
@@ -377,7 +376,7 @@ export function ReviewQueue() {
                         className="button button--secondary button--small"
                         onClick={() => setConfirmDelete(null)}
                       >
-                        Cancel
+                        {t("review.cancelDelete")}
                       </button>
                       <button
                         type="button"
@@ -385,7 +384,7 @@ export function ReviewQueue() {
                         onClick={() => handleDelete(receipt.id)}
                         disabled={deleting === receipt.id}
                       >
-                        {deleting === receipt.id ? "Deleting…" : "Delete"}
+                        {deleting === receipt.id ? t("review.deleting") : t("review.deleteBtn")}
                       </button>
                     </div>
                   </div>

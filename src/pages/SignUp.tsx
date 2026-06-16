@@ -1,11 +1,13 @@
 import { useState, useEffect, type SyntheticEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 
 export function SignUp() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -22,9 +24,7 @@ export function SignUp() {
   async function signUpWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: {
-        redirectTo: window.location.origin,
-      },
+      options: { redirectTo: window.location.origin },
     });
     if (error) setMessage(error.message);
   }
@@ -38,10 +38,7 @@ export function SignUp() {
       email,
       password,
       options: {
-        data: {
-          first_name: firstName,
-          last_name: lastName,
-        },
+        data: { first_name: firstName, last_name: lastName },
       },
     });
     setLoading(false);
@@ -51,7 +48,6 @@ export function SignUp() {
       return;
     }
 
-    // Create profile record
     if (data.user) {
       const { error: profileError } = await supabase.from("profiles").insert({
         id: data.user.id,
@@ -72,19 +68,19 @@ export function SignUp() {
   return (
     <main className="page page--centered">
       <div className="auth-card">
-        <h1>Create account</h1>
-        <p>Start tracking receipts, expenses, and AI-processed tickets.</p>
+        <h1>{t("auth.signUpTitle")}</h1>
+        <p>{t("auth.signUpSubtitle")}</p>
         <button
           type="button"
           className="button button--secondary"
           onClick={signUpWithGoogle}
         >
-          Continue with Google
+          {t("auth.continueWithGoogle")}
         </button>
-        <div className="separator">or</div>
+        <div className="separator">{t("auth.or")}</div>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <label>
-            First name
+            {t("auth.firstName")}
             <input
               type="text"
               value={firstName}
@@ -93,7 +89,7 @@ export function SignUp() {
             />
           </label>
           <label>
-            Last name
+            {t("auth.lastName")}
             <input
               type="text"
               value={lastName}
@@ -102,7 +98,7 @@ export function SignUp() {
             />
           </label>
           <label>
-            Email
+            {t("auth.email")}
             <input
               type="email"
               value={email}
@@ -111,7 +107,7 @@ export function SignUp() {
             />
           </label>
           <label>
-            Password
+            {t("auth.password")}
             <input
               type="password"
               value={password}
@@ -124,12 +120,12 @@ export function SignUp() {
           {message ? <p className="form-message">{message}</p> : null}
 
           <button type="submit" className="button" disabled={loading}>
-            {loading ? "Creating account…" : "Sign up"}
+            {loading ? t("auth.creatingAccount") : t("auth.signUp")}
           </button>
         </form>
 
         <p className="small-text" style={{ marginTop: 16 }}>
-          Already have an account? <Link to="/signin">Sign in</Link>
+          <Link to="/signin">{t("auth.haveAccount")}</Link>
         </p>
       </div>
     </main>

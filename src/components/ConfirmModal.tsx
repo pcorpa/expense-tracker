@@ -1,5 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 interface ConfirmModalProps {
   open: boolean;
@@ -15,13 +16,16 @@ interface ConfirmModalProps {
 export function ConfirmModal({
   open,
   title,
-  confirmLabel = "Confirmar",
-  cancelLabel = "Cancelar",
+  confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel,
   loading = false,
   children,
 }: ConfirmModalProps) {
+  const { t } = useTranslation();
+  const resolvedConfirm = confirmLabel ?? t("common.confirm");
+  const resolvedCancel = cancelLabel ?? t("common.cancel");
   if (!open) return null;
   return (
     <div
@@ -75,7 +79,7 @@ export function ConfirmModal({
             onClick={onCancel}
             disabled={loading}
           >
-            {cancelLabel}
+            {resolvedCancel}
           </button>
           <button
             className="button"
@@ -89,7 +93,7 @@ export function ConfirmModal({
                 style={{ animation: "spin 1s linear infinite" }}
               />
             )}
-            {loading ? "Guardando…" : confirmLabel}
+            {loading ? t("common.confirm") + "…" : resolvedConfirm}
           </button>
         </div>
       </div>

@@ -1,11 +1,13 @@
 import { useState, useEffect, type SyntheticEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 
 export function SignIn() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -22,10 +24,7 @@ export function SignIn() {
     setLoading(true);
     setMessage(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
 
     if (error) {
@@ -39,9 +38,7 @@ export function SignIn() {
   async function signInWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: {
-        redirectTo: window.location.origin,
-      },
+      options: { redirectTo: window.location.origin },
     });
     if (error) setMessage(error.message);
   }
@@ -49,19 +46,19 @@ export function SignIn() {
   return (
     <main className="page page--centered">
       <div className="auth-card">
-        <h1>Sign in</h1>
-        <p>Use email/password or Google SSO to access your expense tracker.</p>
+        <h1>{t("auth.signInTitle")}</h1>
+        <p>{t("auth.signInSubtitle")}</p>
         <button
           type="button"
           className="button button--secondary"
           onClick={signInWithGoogle}
         >
-          Continue with Google
+          {t("auth.continueWithGoogle")}
         </button>
-        <div className="separator">or</div>
+        <div className="separator">{t("auth.or")}</div>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <label>
-            Email
+            {t("auth.email")}
             <input
               type="email"
               value={email}
@@ -70,7 +67,7 @@ export function SignIn() {
             />
           </label>
           <label>
-            Password
+            {t("auth.password")}
             <input
               type="password"
               value={password}
@@ -82,12 +79,12 @@ export function SignIn() {
           {message ? <p className="form-message">{message}</p> : null}
 
           <button type="submit" className="button" disabled={loading}>
-            {loading ? "Signing in…" : "Sign in"}
+            {loading ? t("auth.signingIn") : t("auth.signIn")}
           </button>
         </form>
 
         <p className="small-text" style={{ marginTop: 16 }}>
-          New here? <Link to="/signup">Create account</Link>
+          <Link to="/signup">{t("auth.newHere")}</Link>
         </p>
       </div>
     </main>

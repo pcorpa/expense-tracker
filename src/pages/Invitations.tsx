@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, Check, X } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 
@@ -26,6 +27,7 @@ async function fetchInvitations(email: string): Promise<Invitation[]> {
 
 export function Invitations() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const { data: invitations = [], isLoading } = useQuery({
@@ -49,12 +51,12 @@ export function Invitations() {
       if (error) throw error;
     },
     onSuccess: (_, { accept, invitation }) => {
-      toast.success(accept ? `Joined "${invitation.groups.name}"` : "Invitation declined");
+      toast.success(accept ? t("invitations.joinedGroup", { name: invitation.groups.name }) : t("invitations.declinedMsg"));
       queryClient.invalidateQueries({ queryKey: ["invitations"] });
       queryClient.invalidateQueries({ queryKey: ["pending-invitations-count"] });
     },
     onError: (err: any) => {
-      toast.error(err.message || "Something went wrong");
+      toast.error(err.message || t("invitations.errorMsg"));
     },
   });
 
@@ -62,22 +64,22 @@ export function Invitations() {
     <div style={{ maxWidth: 600, margin: "0 auto", padding: "2rem 1rem" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: "2rem" }}>
         <Mail size={24} />
-        <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700 }}>Invitations</h1>
+        <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700 }}>{t("invitations.title")}</h1>
       </div>
 
       {isLoading && (
-        <p style={{ color: "var(--text-muted, #888)" }}>Loading…</p>
+        <p style={{ color: "var(--text-muted, #888)" }}>{t("invitations.loading")}</p>
       )}
 
       {!isLoading && invitations.length === 0 && (
         <div style={{
           padding: "2rem",
           textAlign: "center",
-          border: "1px dashed #333",
+          border: "1px dashed var(--border-strong)",
           borderRadius: 8,
-          color: "var(--text-muted, #888)",
+          color: "var(--text-muted)",
         }}>
-          No pending invitations.
+          {t("invitations.empty")}
         </div>
       )}
 
@@ -86,8 +88,8 @@ export function Invitations() {
           <div key={inv.id} style={{
             padding: "1.25rem 1.5rem",
             borderRadius: 8,
-            border: "1px solid #2a2a2a",
-            background: "var(--surface, #1a1a1a)",
+            border: "1px solid var(--border-strong)",
+            background: "var(--bg-card)",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -96,10 +98,10 @@ export function Invitations() {
           }}>
             <div>
               <p style={{ margin: 0, fontWeight: 600, fontSize: "1rem" }}>
-                {inv.groups?.name ?? "Unknown group"}
+                {inv.groups?.name ?? t("invitations.unknownGroup")}
               </p>
-              <p style={{ margin: "4px 0 0", fontSize: "0.8rem", color: "var(--text-muted, #888)" }}>
-                Invited {new Date(inv.created_at).toLocaleDateString()}
+              <p style={{ margin: "4px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                {t("invitations.invitedDate", { date: new Date(inv.created_at).toLocaleDateString() })}
               </p>
             </div>
 
@@ -114,7 +116,7 @@ export function Invitations() {
                   fontWeight: 600, fontSize: "0.85rem",
                 }}
               >
-                <Check size={15} /> Accept
+                <Check size={15} /> {t("invitations.accept")}
               </button>
               <button
                 onClick={() => respondMutation.mutate({ invitation: inv, accept: false })}
@@ -122,12 +124,12 @@ export function Invitations() {
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "6px 14px", borderRadius: 6,
-                  border: "1px solid #444", background: "transparent",
-                  color: "#ccc", cursor: "pointer",
+                  border: "1px solid var(--border-strong)", background: "transparent",
+                  color: "var(--text-secondary)", cursor: "pointer",
                   fontWeight: 600, fontSize: "0.85rem",
                 }}
               >
-                <X size={15} /> Decline
+                <X size={15} /> {t("invitations.decline")}
               </button>
             </div>
           </div>

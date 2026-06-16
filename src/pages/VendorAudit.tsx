@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ScanSearch,
@@ -15,6 +16,7 @@ import {
   Trash2,
   X,
   Camera,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
@@ -203,6 +205,10 @@ async function runScan(): Promise<{ scanned: number; autoMatched: number; needsR
 
 // ─── combobox component ────────────────────────────────────────────────────────
 
+function normalize(s: string) {
+  return s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
 function VendorCombobox({
   value,
   onChange,
@@ -216,20 +222,19 @@ function VendorCombobox({
   vendors: Vendor[];
   placeholder?: string;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
     if (!value.trim()) return vendors.slice(0, 8);
-    const q = value.toLowerCase();
-    return vendors.filter((v) => {
-      const canonical = v.canonical_name.toLowerCase();
-      // Direct match: "disco s.a." contains "disco", or user typed canonical directly
+    const q = normalize(value);
+    const matches = vendors.filter((v) => {
+      const canonical = normalize(v.canonical_name);
       if (canonical.includes(q) || q.includes(canonical)) return true;
-      // Token match: any canonical word (3+ chars) found inside the input text
-      // e.g. "disco" found in "supermercados disco del uruguay s.a."
       return canonical.split(/[\s\W]+/).filter((w) => w.length >= 3).some((token) => q.includes(token));
-    }).slice(0, 8);
+    });
+    return (matches.length > 0 ? matches : vendors).slice(0, 8);
   }, [value, vendors]);
 
   useEffect(() => {
@@ -242,13 +247,13 @@ function VendorCombobox({
 
   return (
     <div ref={ref} style={{ position: "relative", flex: "2 1 200px" }}>
-      <label style={labelStyle}>Canonical name</label>
+      <label style={labelStyle}>{t("audit.canonical")}</label>
       <input
         value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         style={inputStyle}
-        placeholder={placeholder ?? "Type or select existing vendor…"}
+        placeholder={placeholder ?? t("audit.typeOrSelectVendor")}
         autoComplete="off"
       />
       {open && filtered.length > 0 && (
@@ -303,6 +308,7 @@ function VendorCombobox({
 // ─── component ────────────────────────────────────────────────────────────────
 
 export function VendorAudit() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
 
   const auditQuery = useQuery({ queryKey: ["vendor-audit-txs"], queryFn: fetchAuditTransactions, retry: false });
@@ -359,10 +365,10 @@ export function VendorAudit() {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
-      if (stats.scanned === 0) toast.info("No unprocessed vendors found.");
-      else toast.success(`Scanned ${stats.scanned} — ${stats.autoMatched} auto-matched, ${stats.needsReview} need review, ${stats.newCandidates} new.`);
+      if (stats.scanned === 0) toast.info(t("audit.scanEmpty"));
+      else toast.success(t("audit.scanSuccess", { scanned: stats.scanned, autoMatched: stats.autoMatched, needsReview: stats.needsReview, newCandidates: stats.newCandidates }));
     },
-    onError: (err: Error) => toast.error(`Scan failed: ${err.message}`),
+    onError: (err: Error) => toast.error(t("audit.scanError", { message: err.message })),
   });
 
   // ── confirm potential match ───────────────────────────────────────────────
@@ -380,9 +386,9 @@ export function VendorAudit() {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
-      toast.success(`"${rawName}" confirmed.`);
+      toast.success(t("audit.confirmSuccess", { rawName }));
     },
-    onError: (err: Error) => toast.error(`Failed: ${err.message}`),
+    onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
   });
 
   const treatAsNewMutation = useMutation({
@@ -395,9 +401,9 @@ export function VendorAudit() {
     },
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
-      toast.info(`"${rawName}" moved to New Vendors.`);
+      toast.info(t("audit.movedToNew", { rawName }));
     },
-    onError: (err: Error) => toast.error(`Failed: ${err.message}`),
+    onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
   });
 
   // ── approve / map new vendor ─────────────────────────────────────────────
@@ -430,9 +436,9 @@ export function VendorAudit() {
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
-      toast.success(existingVendorId ? `Mapped to "${canonicalName}".` : `"${canonicalName}" added to vendor catalog.`);
+      toast.success(existingVendorId ? t("audit.mappedToVendor", { name: canonicalName }) : t("audit.addedToVendorCatalog", { name: canonicalName }));
     },
-    onError: (err: Error) => toast.error(`Failed: ${err.message}`),
+    onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
   });
 
   // ── vendor catalog: rename ─────────────────────────────────────────────────
@@ -448,9 +454,9 @@ export function VendorAudit() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       setEditingVendorId(null);
-      toast.success("Vendor renamed.");
+      toast.success(t("audit.vendorRenamed"));
     },
-    onError: (err: Error) => toast.error(`Failed: ${err.message}`),
+    onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
   });
 
   // ── vendor catalog: delete ────────────────────────────────────────────────
@@ -465,9 +471,9 @@ export function VendorAudit() {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
-      toast.success("Vendor deleted. Affected transactions will re-appear on next scan.");
+      toast.success(t("audit.vendorDeleted"));
     },
-    onError: (err: Error) => toast.error(`Failed: ${err.message}`),
+    onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
   });
 
   // ── delete raw mapping ────────────────────────────────────────────────────
@@ -479,10 +485,14 @@ export function VendorAudit() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
-      toast.success("Mapping removed. Transactions with this raw name will re-appear on next scan.");
+      toast.success(t("audit.vendorMappingRemoved"));
     },
-    onError: (err: Error) => toast.error(`Failed: ${err.message}`),
+    onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
   });
+
+  // ── search ────────────────────────────────────────────────────────────────
+
+  const [auditSearch, setAuditSearch] = useState("");
 
   // ── cluster state ─────────────────────────────────────────────────────────
 
@@ -506,7 +516,7 @@ export function VendorAudit() {
     const { data, error } = await supabase.storage.from("receipts").createSignedUrl(imagePath, 120);
     setLightboxLoading(false);
     if (error || !data?.signedUrl) {
-      toast.error("Could not load receipt image.");
+      toast.error(t("audit.receiptLoadError"));
       return;
     }
     setLightboxUrl(data.signedUrl);
@@ -561,6 +571,18 @@ export function VendorAudit() {
   const isLoading = (auditQuery.isLoading || vendorsQuery.isLoading) && !isMigrationNeeded;
   const totalPending = potentialClusters.length + newCandidateClusters.length;
 
+  const visiblePotential = useMemo(() =>
+    auditSearch.trim()
+      ? potentialClusters.filter((c) => c.rawName.toLowerCase().includes(auditSearch.toLowerCase()))
+      : potentialClusters,
+  [potentialClusters, auditSearch]);
+
+  const visibleNew = useMemo(() =>
+    auditSearch.trim()
+      ? newCandidateClusters.filter((c) => c.rawName.toLowerCase().includes(auditSearch.toLowerCase()))
+      : newCandidateClusters,
+  [newCandidateClusters, auditSearch]);
+
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
@@ -568,10 +590,10 @@ export function VendorAudit() {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28, gap: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "var(--text-primary)" }}>
-            Vendor Audit
+            {t("audit.vendorAuditTitle")}
           </h1>
           <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-            Map raw receipt vendor names to your canonical vendor catalog for accurate Pareto analysis.
+            {t("audit.vendorAuditDesc")}
           </p>
         </div>
         <button
@@ -580,7 +602,7 @@ export function VendorAudit() {
           style={{ display: "flex", alignItems: "center", gap: 7, background: "var(--color-accent)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontWeight: 600, fontSize: "0.85rem", cursor: scanMutation.isPending ? "wait" : "pointer", flexShrink: 0, opacity: scanMutation.isPending ? 0.7 : 1 }}
         >
           {scanMutation.isPending ? <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> : <ScanSearch size={15} />}
-          {scanMutation.isPending ? "Scanning…" : "Scan Unmapped Vendors"}
+          {scanMutation.isPending ? t("audit.scanning") : t("audit.scanVendorBtn")}
         </button>
       </div>
 
@@ -588,7 +610,7 @@ export function VendorAudit() {
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, padding: "16px 18px", marginBottom: 24 }}>
           <AlertTriangle size={18} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: 2 }} />
           <div>
-            <p style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--color-danger)", fontSize: "0.9rem" }}>Database migration required</p>
+            <p style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--color-danger)", fontSize: "0.9rem" }}>{t("audit.migrationTitle")}</p>
             <p style={{ margin: "0 0 10px", fontSize: "0.83rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
               Run migration <strong>0014_vendor_normalization.sql</strong> in your Supabase SQL editor, then reload.
             </p>
@@ -598,16 +620,16 @@ export function VendorAudit() {
 
       {!isLoading && !isMigrationNeeded && (
         <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
-          <StatChip color="var(--color-accent)" label="Potential matches" count={potentialClusters.length} icon={<ArrowRightLeft size={14} />} />
-          <StatChip color="#f59e0b" label="New vendors" count={newCandidateClusters.length} icon={<Plus size={14} />} />
-          {totalPending === 0 && <StatChip color="var(--color-success)" label="All clear" count={null} icon={<CheckCircle2 size={14} />} />}
+          <StatChip color="var(--color-accent)" label={t("audit.potentialMatchesChip")} count={potentialClusters.length} icon={<ArrowRightLeft size={14} />} />
+          <StatChip color="#f59e0b" label={t("audit.newVendorsChip")} count={newCandidateClusters.length} icon={<Plus size={14} />} />
+          {totalPending === 0 && <StatChip color="var(--color-success)" label={t("audit.allClearShort")} count={null} icon={<CheckCircle2 size={14} />} />}
         </div>
       )}
 
       {isLoading && !isMigrationNeeded && (
         <div style={{ textAlign: "center", padding: 48, color: "var(--text-muted)" }}>
           <Loader2 size={24} style={{ animation: "spin 1s linear infinite", margin: "0 auto 8px" }} />
-          <p style={{ margin: 0, fontSize: "0.85rem" }}>Loading vendor audit data…</p>
+          <p style={{ margin: 0, fontSize: "0.85rem" }}>{t("audit.loadingVendorAudit")}</p>
         </div>
       )}
 
@@ -618,12 +640,25 @@ export function VendorAudit() {
           {/* ── LEFT: audit queue ──────────────────────────────────────── */}
           <div>
 
+            {/* Search */}
+            {totalPending > 0 && (
+              <div style={{ position: "relative", marginBottom: 20 }}>
+                <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+                <input
+                  value={auditSearch}
+                  onChange={(e) => setAuditSearch(e.target.value)}
+                  placeholder={t("audit.filterRaw")}
+                  style={{ ...inputStyle, paddingLeft: 32 }}
+                />
+              </div>
+            )}
+
       {/* ── Potential Matches ─────────────────────────────────────────── */}
-      {potentialClusters.length > 0 && (
+      {visiblePotential.length > 0 && (
         <section style={{ marginBottom: 36 }}>
-          <SectionHeader icon={<ArrowRightLeft size={16} />} title="Potential Matches" subtitle="Fuzzy score 60–90% or token overlap — confirm or reclassify as new." color="var(--color-accent)" />
+          <SectionHeader icon={<ArrowRightLeft size={16} />} title={t("audit.potentialMatchesSection")} subtitle={t("audit.vendorPotentialDesc")} color="var(--color-accent)" />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {potentialClusters.map((cluster) => {
+            {visiblePotential.map((cluster) => {
               const suggestedVendor = cluster.suggestedVendorId ? vendorsById.get(cluster.suggestedVendorId) : null;
               const isPending = confirmMutation.isPending || treatAsNewMutation.isPending;
               const isExpanded = expandedClusters.has(cluster.key);
@@ -642,7 +677,7 @@ export function VendorAudit() {
                         {isExpanded ? <ChevronDown size={13} color="var(--text-muted)" /> : <ChevronRight size={13} color="var(--text-muted)" />}
                         <Tag size={13} color="var(--text-muted)" />
                         <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                          Raw name · {cluster.transactions.length} transaction{cluster.transactions.length !== 1 ? "s" : ""}
+                          {t("audit.rawNameTransCount", { count: cluster.transactions.length })}
                         </span>
                       </button>
                       <p style={{ margin: "0 0 10px", fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)", wordBreak: "break-word" }}>
@@ -666,12 +701,12 @@ export function VendorAudit() {
                               }}
                               style={{ background: "none", border: "none", padding: 0, fontSize: "0.75rem", color: "var(--text-muted)", cursor: "pointer", textDecoration: "underline" }}
                             >
-                              Wrong match?
+                              {t("audit.wrongMatch")}
                             </button>
                           )}
                         </div>
                       ) : (
-                        <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Suggested vendor not found in catalog</span>
+                        <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>{t("audit.vendorNotFound")}</span>
                       ))}
                       {isOverriding && isAdmin && (
                         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 4 }}>
@@ -686,7 +721,7 @@ export function VendorAudit() {
                               setOverrideSelectedVendor((prev) => ({ ...prev, [cluster.key]: v }));
                             }}
                             vendors={(vendorsQuery.data ?? []).filter((v) => v.group_id === cluster.groupId)}
-                            placeholder="Select correct vendor…"
+                            placeholder={t("audit.selectCorrectVendor")}
                           />
                           <div style={{ display: "flex", gap: 7, alignSelf: "flex-end" }}>
                             <button
@@ -698,13 +733,13 @@ export function VendorAudit() {
                               }}
                               style={{ ...primaryBtn, opacity: !overrideVendor || isPending ? 0.5 : 1 }}
                             >
-                              <CheckCircle2 size={13} /> Confirm Override
+                              <CheckCircle2 size={13} /> {t("audit.confirmOverride")}
                             </button>
                             <button
                               onClick={() => setOverridingClusters((prev) => { const s = new Set(prev); s.delete(cluster.key); return s; })}
                               style={ghostBtn}
                             >
-                              <X size={13} /> Cancel
+                              <X size={13} /> {t("common.cancel")}
                             </button>
                           </div>
                         </div>
@@ -714,11 +749,11 @@ export function VendorAudit() {
                       <div style={{ display: "flex", flexDirection: "column", gap: 7, flexShrink: 0 }}>
                         {suggestedVendor && (
                           <button disabled={isPending} onClick={() => confirmMutation.mutate({ rawName: cluster.rawName, vendorId: suggestedVendor.id, groupId: cluster.groupId })} style={primaryBtn}>
-                            <CheckCircle2 size={13} /> Confirm Match
+                            <CheckCircle2 size={13} /> {t("audit.confirmMatch")}
                           </button>
                         )}
-                        <button disabled={isPending} onClick={() => treatAsNewMutation.mutate({ ids: cluster.transactions.map((t) => t.id), rawName: cluster.rawName })} style={ghostBtn}>
-                          <Plus size={13} /> Treat as New
+                        <button disabled={isPending} onClick={() => treatAsNewMutation.mutate({ ids: cluster.transactions.map((tx) => tx.id), rawName: cluster.rawName })} style={ghostBtn}>
+                          <Plus size={13} /> {t("audit.treatAsNew")}
                         </button>
                       </div>
                     )}
@@ -734,11 +769,11 @@ export function VendorAudit() {
       )}
 
       {/* ── New Vendor Candidates ─────────────────────────────────────── */}
-      {newCandidateClusters.length > 0 && (
+      {visibleNew.length > 0 && (
         <section style={{ marginBottom: 36 }}>
-          <SectionHeader icon={<Plus size={16} />} title="New Vendor Candidates" subtitle="No match found — type a canonical name or select an existing vendor." color="#f59e0b" />
+          <SectionHeader icon={<Plus size={16} />} title={t("audit.newVendorSection")} subtitle={t("audit.newVendorDesc")} color="#f59e0b" />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {newCandidateClusters.map((cluster) => {
+            {visibleNew.map((cluster) => {
               const editedName = getEdit(cluster.key, cluster.rawName);
               const selectedVendor = clusterSelectedVendor[cluster.key] ?? null;
               const isPending = approveMutation.isPending;
@@ -753,7 +788,7 @@ export function VendorAudit() {
                     {isExpanded ? <ChevronDown size={13} color="var(--text-muted)" /> : <ChevronRight size={13} color="var(--text-muted)" />}
                     <Tag size={13} color="var(--text-muted)" />
                     <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                      Raw name · {cluster.transactions.length} transaction{cluster.transactions.length !== 1 ? "s" : ""}
+                      {t("audit.rawNameTransCount", { count: cluster.transactions.length })}
                     </span>
                   </button>
                   <p style={{ margin: "0 0 14px", fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)", wordBreak: "break-word" }}>
@@ -782,11 +817,11 @@ export function VendorAudit() {
                           opacity: isPending || !editedName.trim() ? 0.5 : 1,
                         }}
                       >
-                        {selectedVendor ? <><ArrowRightLeft size={13} /> Map to "{selectedVendor.canonical_name}"</> : <><Plus size={13} /> Add to Catalog</>}
+                        {selectedVendor ? <><ArrowRightLeft size={13} /> {t("audit.mapTo", { name: selectedVendor.canonical_name })}</> : <><Plus size={13} /> {t("audit.addToCatalog")}</>}
                       </button>
                     </div>
                   ) : (
-                    <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>Only group admins can add vendors.</p>
+                    <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>{t("audit.onlyAdminsAddVendor")}</p>
                   )}
                   {isExpanded && (
                     <TransactionList transactions={cluster.transactions} onViewReceipt={openReceipt} />
@@ -798,11 +833,17 @@ export function VendorAudit() {
         </section>
       )}
 
+      {auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
+        <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          {t("audit.noSearchResults", { query: auditSearch })}
+        </div>
+      )}
+
       {totalPending === 0 && !scanMutation.isPending && (
         <div style={{ textAlign: "center", padding: "56px 24px", background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border-color)" }}>
           <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: "0 auto 14px" }} />
-          <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>All vendors are mapped</p>
-          <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>Click <strong>Scan Unmapped Vendors</strong> to check for new receipts.</p>
+          <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>{t("audit.allVendorsMapped")}</p>
+          <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>{t("audit.allVendorsMappedDesc")}</p>
         </div>
       )}
 
@@ -814,7 +855,7 @@ export function VendorAudit() {
       {/* ── Vendor Catalog ────────────────────────────────────────────── */}
       {(vendorsQuery.data ?? []).length > 0 && (
         <section style={{ marginBottom: 24 }}>
-          <SectionHeader icon={<Store size={16} />} title="Vendor Catalog" subtitle={`${(vendorsQuery.data ?? []).length} canonical vendor${(vendorsQuery.data ?? []).length !== 1 ? "s" : ""}`} color="var(--text-muted)" />
+          <SectionHeader icon={<Store size={16} />} title={t("audit.vendorCatalogSection")} subtitle={t("audit.vendorCatalogCount", { count: (vendorsQuery.data ?? []).length })} color="var(--text-muted)" />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {(vendorsQuery.data ?? []).map((vendor) => {
               const isEditing = editingVendorId === vendor.id;
@@ -839,7 +880,7 @@ export function VendorAudit() {
                         disabled={renameMutation.isPending || !vendorEditName.trim()}
                         style={{ ...primaryBtn, padding: "6px 12px" }}
                       >
-                        Save
+                        {t("common.save")}
                       </button>
                       <button
                         onClick={() => setEditingVendorId(null)}
@@ -862,7 +903,7 @@ export function VendorAudit() {
                           </button>
                           <button
                             onClick={() => {
-                              if (confirm(`Delete "${vendor.canonical_name}"? Affected transactions will need to be re-mapped.`)) {
+                              if (confirm(t("audit.deleteVendorConfirm", { name: vendor.canonical_name }))) {
                                 deleteMutation.mutate(vendor.id);
                               }
                             }}
@@ -888,8 +929,8 @@ export function VendorAudit() {
         <section>
           <SectionHeader
             icon={<CheckCircle2 size={16} />}
-            title="Confirmed Mappings"
-            subtitle="Raw vendor names permanently linked to canonical vendors. Future scans skip the review queue for these."
+            title={t("audit.confirmedMappingsSection")}
+            subtitle={t("audit.vendorConfirmedMappingsDesc")}
             color="var(--color-success)"
           />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -904,12 +945,12 @@ export function VendorAudit() {
                   </span>
                   <ArrowRightLeft size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
                   <span style={{ fontSize: "0.83rem", fontWeight: 600, color: "var(--color-success)", flexShrink: 0 }}>
-                    {vendor?.canonical_name ?? "Unknown vendor"}
+                    {vendor?.canonical_name ?? t("audit.unknownVendor")}
                   </span>
                   {isAdmin && (
                     <button
                       onClick={() => {
-                        if (confirm(`Remove mapping "${mapping.raw_name}" → "${vendor?.canonical_name}"?\nTransactions with this raw name will re-appear in the audit queue on next scan.`)) {
+                        if (confirm(t("audit.removeMappingVendorConfirm", { raw: mapping.raw_name, vendor: vendor?.canonical_name ?? "" }))) {
                           deleteMappingMutation.mutate(mapping.id);
                         }
                       }}
@@ -968,11 +1009,12 @@ export function VendorAudit() {
 // ─── transaction list ──────────────────────────────────────────────────────────
 
 function TransactionList({ transactions, onViewReceipt }: { transactions: AuditTransaction[]; onViewReceipt: (path: string) => void }) {
+  const { t } = useTranslation();
   return (
     <div style={{ marginTop: 12, borderTop: "1px solid var(--border-color)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
       {transactions.map((tx) => (
         <div key={tx.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: "0.82rem" }}>
-          <span style={{ color: "var(--text-muted)" }}>{tx.date ?? "Unknown date"}</span>
+          <span style={{ color: "var(--text-muted)" }}>{tx.date ?? t("audit.unknownDate")}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
               {tx.currency} {(tx.total_amount ?? 0).toFixed(2)}

@@ -1,57 +1,50 @@
+import { useNavigate } from "react-router-dom";
+import { ArrowRight, PenLine } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../lib/auth";
+import { UploadReceiptPanel } from "../components/UploadReceiptPanel";
 
 export function Home() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const { t } = useTranslation();
 
   return (
     <main className="page">
       <div className="page__header">
         <div>
-          <p className="eyebrow">Welcome back</p>
-          <h1>Manage your expenses</h1>
-          <p>
-            Upload receipts, track processed tickets, and review your spending
-            with a clean mobile-first dashboard.
-          </p>
+          <p className="eyebrow">{t("home.eyebrow")}</p>
+          <h1>{t("home.title")}</h1>
+          <p className="muted">{t("home.signedInAs")} <strong>{user?.email}</strong></p>
         </div>
       </div>
 
-      <section className="grid grid--cards">
-        <article className="card">
-          <h2>Pending receipts</h2>
-          <p>
-            Easily upload receipt images and process them into shared group
-            transactions.
-          </p>
-        </article>
-        <article className="card">
-          <h2>Group budgeting</h2>
-          <p>
-            Manage spending together with group-based access and shared finance
-            tracking.
-          </p>
-        </article>
-        <article className="card">
-          <h2>Secure accounts</h2>
-          <p>
-            Each user has their own Supabase-backed workspace with role-based
-            access to groups.
-          </p>
-        </article>
-        <article className="card">
-          <h2>Manual entry</h2>
-          <p>
-            Record expenses or income without receipts and add them directly to
-            a group.
-          </p>
-        </article>
-      </section>
+      <div className="home-hub">
+        <UploadReceiptPanel />
 
-      <footer className="content-block">
-        <p className="muted">
-          Signed in as <strong>{user?.email}</strong>.
-        </p>
-      </footer>
+        <div className="home-hub__panel home-hub__panel--action" style={{ animationDelay: "0.07s" }}>
+          <div className="panel-header">
+            <PenLine size={20} />
+            <h2>{t("home.newTransaction")}</h2>
+          </div>
+
+          <div className="home-action-card">
+            <p>{t("home.newTransactionDesc")}</p>
+
+            <button
+              className="button-primary home-entry-btn"
+              onClick={() => navigate("/entry")}
+            >
+              {t("home.startEntry")}
+              <ArrowRight size={16} className="home-entry-btn__arrow" />
+            </button>
+          </div>
+
+          <p className="home-hub__hint">
+            {t("home.newTransactionHint")} <span style={{ color: "var(--color-accent)" }}>/entry</span>.
+          </p>
+        </div>
+      </div>
     </main>
   );
 }

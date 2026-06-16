@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { DayPicker } from "react-day-picker";
 import type { DateRange } from "react-day-picker";
 import { format } from "date-fns";
@@ -11,6 +12,7 @@ import type { Group, Transaction } from "../types";
 export function ExpenseList() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,7 +102,7 @@ export function ExpenseList() {
 
   const dateLabel = dateRange?.from
     ? `${format(dateRange.from, "MMM d")}${dateRange.to ? ` – ${format(dateRange.to, "MMM d")}` : ""}`
-    : "Date range";
+    : t("transactions.dateRange");
 
   const hasDateFilter = !!dateRange?.from;
 
@@ -108,14 +110,14 @@ export function ExpenseList() {
     <main className="page">
       <div className="page__header">
         <div>
-          <p className="eyebrow">Transactions</p>
-          <h1>All tracked transactions</h1>
-          <p>Browse the expenses and income entries created in your groups.</p>
+          <p className="eyebrow">{t("transactions.eyebrow")}</p>
+          <h1>{t("transactions.title")}</h1>
+          <p>{t("transactions.subtitle")}</p>
         </div>
       </div>
 
       <div className="content-block">
-        {loading && <p>Loading transactions…</p>}
+        {loading && <p>{t("transactions.loading")}</p>}
         {error && <div className="alert">{error}</div>}
 
         {!loading && (
@@ -123,7 +125,7 @@ export function ExpenseList() {
             <input
               type="text"
               className="tx-search"
-              placeholder="Search by vendor…"
+              placeholder={t("transactions.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -135,7 +137,7 @@ export function ExpenseList() {
                   className={`tx-filter-btn${typeFilter === f ? " tx-filter-btn--active" : ""}`}
                   onClick={() => setTypeFilter(f)}
                 >
-                  {f === "all" ? "All" : f === "expense" ? "Expenses" : "Income"}
+                  {f === "all" ? t("transactions.allFilter") : f === "expense" ? t("transactions.expenseFilter") : t("transactions.incomeFilter")}
                 </button>
               ))}
             </div>
@@ -144,7 +146,7 @@ export function ExpenseList() {
               value={groupFilter}
               onChange={(e) => setGroupFilter(e.target.value)}
             >
-              <option value="all">All groups</option>
+              <option value="all">{t("transactions.allGroups")}</option>
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name}
@@ -163,14 +165,14 @@ export function ExpenseList() {
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as "date" | "amount")}
             >
-              <option value="date">Date (newest)</option>
-              <option value="amount">Amount (highest)</option>
+              <option value="date">{t("transactions.sortDate")}</option>
+              <option value="amount">{t("transactions.sortAmount")}</option>
             </select>
           </div>
         )}
 
         {!loading && !filtered.length && (
-          <p>No transactions match your filters.</p>
+          <p>{t("transactions.noMatch")}</p>
         )}
 
         <div className="ticket-list">
@@ -179,13 +181,13 @@ export function ExpenseList() {
               <div className="ticket-card__header">
                 <div>
                   <strong>
-                    {transaction.vendor_or_source ?? "Unknown source"}
+                    {transaction.vendor_or_source ?? t("transactions.unknownSource")}
                   </strong>
-                  <span>{transaction.date ?? "No date"}</span>
+                  <span>{transaction.date ?? t("transactions.noDate")}</span>
                 </div>
                 <div className="ticket-card__header-right">
                   <span className={`tx-badge tx-badge--${transaction.type}`}>
-                    {transaction.type === "expense" ? "Expense" : "Income"}
+                    {transaction.type === "expense" ? t("transactions.expense") : t("transactions.income")}
                   </span>
                   <strong className={`tx-amount tx-amount--${transaction.type}`}>
                     ${transaction.total_amount?.toFixed(2) ?? "0.00"}
@@ -193,7 +195,7 @@ export function ExpenseList() {
                 </div>
               </div>
               <p className="small-text">
-                {transaction.is_reviewed ? "Reviewed" : "Pending review"}
+                {transaction.is_reviewed ? t("transactions.reviewed") : t("transactions.pendingReview")}
               </p>
               {transaction.transaction_items?.length ? (
                 <div className="ticket-card__products">
@@ -208,7 +210,7 @@ export function ExpenseList() {
                     >
                       <div className="item-row-btn__left">
                         <span className="item-row-btn__name">
-                          {item.name || "Unnamed item"}
+                          {item.name || t("transactions.unnamedItem")}
                         </span>
                         {item.category && (
                           <span className="item-row-btn__category">
@@ -256,14 +258,14 @@ export function ExpenseList() {
                 className="btn-ghost"
                 onClick={() => setDateRange(undefined)}
               >
-                Clear
+                {t("transactions.clear")}
               </button>
               <button
                 type="button"
                 className="button"
                 onClick={() => setShowDatePicker(false)}
               >
-                Done
+                {t("transactions.done")}
               </button>
             </div>
           </div>

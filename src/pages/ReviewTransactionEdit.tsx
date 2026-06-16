@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 
 type FormState = {
@@ -13,6 +14,7 @@ type FormState = {
 export function ReviewTransactionEdit() {
   const { transactionId } = useParams<{ transactionId: string }>();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const [form, setForm] = useState<FormState>({
     vendor_or_source: "",
@@ -95,20 +97,20 @@ export function ReviewTransactionEdit() {
           onClick={() => navigate("/review")}
           style={{ marginBottom: 24 }}
         >
-          ← Back to Review Queue
+          ← {t("reviewEdit.back")}
         </button>
-        <p className="eyebrow">Edit transaction</p>
-        <h1>{form.vendor_or_source || "Transaction details"}</h1>
+        <p className="eyebrow">{t("reviewEdit.editTransaction")}</p>
+        <h1>{form.vendor_or_source || t("reviewEdit.defaultTitle")}</h1>
       </div>
 
       {isLoading ? (
         <div className="content-block">
-          <p>Loading transaction…</p>
+          <p>{t("reviewEdit.loading")}</p>
         </div>
       ) : transactionQuery.isError ? (
         <div className="content-block">
           <div className="alert">
-            Failed to load transaction: {String(transactionQuery.error)}
+            {t("reviewEdit.loadError")} {String(transactionQuery.error)}
           </div>
         </div>
       ) : (
@@ -117,18 +119,18 @@ export function ReviewTransactionEdit() {
 
           <div className="form-grid">
             <div>
-              <label htmlFor="tx-vendor">Vendor / source</label>
+              <label htmlFor="tx-vendor">{t("reviewEdit.vendor")}</label>
               <input
                 id="tx-vendor"
                 value={form.vendor_or_source}
                 onChange={(e) => field("vendor_or_source", e.target.value)}
-                placeholder="e.g. Supermercado DIA"
+                placeholder={t("reviewEdit.vendorPlaceholder")}
                 autoFocus
               />
             </div>
 
             <div>
-              <label htmlFor="tx-date">Date</label>
+              <label htmlFor="tx-date">{t("reviewEdit.date")}</label>
               <input
                 id="tx-date"
                 type="date"
@@ -138,19 +140,19 @@ export function ReviewTransactionEdit() {
             </div>
 
             <div>
-              <label htmlFor="tx-type">Type</label>
+              <label htmlFor="tx-type">{t("reviewEdit.type")}</label>
               <select
                 id="tx-type"
                 value={form.type}
                 onChange={(e) => field("type", e.target.value as "income" | "expense")}
               >
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
+                <option value="expense">{t("entry.expense")}</option>
+                <option value="income">{t("entry.income")}</option>
               </select>
             </div>
 
             <div>
-              <label htmlFor="tx-amount">Total amount</label>
+              <label htmlFor="tx-amount">{t("reviewEdit.totalAmount")}</label>
               <input
                 id="tx-amount"
                 type="number"
@@ -172,7 +174,7 @@ export function ReviewTransactionEdit() {
               className="button button--secondary"
               onClick={() => navigate("/review")}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               type="button"
@@ -180,7 +182,7 @@ export function ReviewTransactionEdit() {
               onClick={handleSave}
               disabled={saving}
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? t("reviewEdit.saving") : t("common.save")}
             </button>
           </div>
         </div>

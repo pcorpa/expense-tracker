@@ -12,15 +12,6 @@
     "cv03" 1,
     "cv04" 1,
     "cv11" 1;
-  background: #0d1117;
-  color: #f0f6fc;
-
-  --color-primary-dark: #0d1117;
-  --color-primary: #161b22;
-  --color-primary-light: #1c2128;
-  --color-accent: #3b82f6;
-  --color-accent-secondary: #818cf8;
-  --color-accent-light: #60a5fa;
 }
 
 * {
@@ -31,7 +22,8 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: #0d1117;
+  background: var(--bg-main, #0d1117);
+  color: var(--text-primary, #f0f6fc);
 }
 
 button,

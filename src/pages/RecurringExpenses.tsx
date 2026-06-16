@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Plus,
   RefreshCw,
@@ -22,23 +23,6 @@ import {
 } from "../lib/recurringExpenses";
 import type { RecurringExpense, RecurringFrequency, Group } from "../types";
 
-const TYPE_LABELS: Record<string, string> = {
-  subscription: "Suscripción",
-  installment: "Cuotas",
-  periodic_bill: "Gasto Fijo",
-};
-
-const FREQ_LABELS: Record<RecurringFrequency, string> = {
-  weekly: "Semanal",
-  biweekly: "Quincenal",
-  monthly: "Mensual",
-  bimonthly: "Bimestral",
-  quarterly: "Trimestral",
-  every4months: "Cada 4 meses",
-  every6months: "Semestral",
-  annual: "Anual",
-};
-
 const FREQ_MONTHLY_MULT: Record<RecurringFrequency, number> = {
   weekly: 4.33,
   biweekly: 2.17,
@@ -59,6 +43,7 @@ function TypeIcon({ type, size = 10 }: { type: string; size?: number }) {
 export function RecurringExpenses() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const [items, setItems] = useState<RecurringExpense[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -143,6 +128,23 @@ export function RecurringExpenses() {
   const active = filtered.filter((r) => r.is_active);
   const inactive = filtered.filter((r) => !r.is_active);
 
+  const TYPE_LABELS: Record<string, string> = {
+    subscription: t("recurring.typeSubscription"),
+    installment: t("recurring.typeInstallment"),
+    periodic_bill: t("recurring.typePeriodicBill"),
+  };
+
+  const FREQ_LABELS: Record<RecurringFrequency, string> = {
+    weekly: t("frequencies.weekly"),
+    biweekly: t("frequencies.biweekly"),
+    monthly: t("frequencies.monthly"),
+    bimonthly: t("frequencies.bimonthly"),
+    quarterly: t("frequencies.quarterly"),
+    every4months: t("frequencies.every4months"),
+    every6months: t("frequencies.every6months"),
+    annual: t("frequencies.annual"),
+  };
+
   const FREQUENT_FREQS = new Set<RecurringFrequency>(["weekly", "biweekly", "monthly"]);
 
   const nextMonthByCurrency = active
@@ -186,7 +188,7 @@ export function RecurringExpenses() {
   return (
     <div className="page">
       <div className="page__header">
-        <p className="page__eyebrow">FINANZAS FIJAS</p>
+        <p className="page__eyebrow">{t("recurring.fixedFinances")}</p>
         <div
           style={{
             display: "flex",
@@ -197,9 +199,9 @@ export function RecurringExpenses() {
           }}
         >
           <div>
-            <h1>Gastos Recurrentes</h1>
+            <h1>{t("recurring.title")}</h1>
             <p className="page__desc">
-              Suscripciones, cuotas y gastos periódicos fijos
+              {t("recurring.subtitle")}
             </p>
           </div>
           <button
@@ -213,7 +215,7 @@ export function RecurringExpenses() {
             }}
           >
             <Plus size={15} />
-            Nuevo recurrente
+            {t("recurring.newRecurring")}
           </button>
         </div>
       </div>
@@ -227,7 +229,7 @@ export function RecurringExpenses() {
             size={14}
             style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
           />
-          Sincronizando transacciones pendientes…
+          {t("recurring.syncPending")}
         </div>
       )}
 
@@ -238,7 +240,7 @@ export function RecurringExpenses() {
             onChange={(e) => setGroupFilter(e.target.value)}
             style={{ width: "auto" }}
           >
-            <option value="all">Todos los grupos</option>
+            <option value="all">{t("recurring.allGroups")}</option>
             {groups.map((g) => (
               <option key={g.id} value={g.id}>
                 {g.name}
@@ -260,7 +262,7 @@ export function RecurringExpenses() {
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
                 <Calendar size={12} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-                <p className="kpi-label" style={{ margin: 0 }}>PRÓXIMO MES</p>
+                <p className="kpi-label" style={{ margin: 0 }}>{t("recurring.nextMonth")}</p>
               </div>
               {nextMonthEntries.length === 0 ? (
                 <p className="kpi-value">—</p>
@@ -279,7 +281,7 @@ export function RecurringExpenses() {
                 ))
               )}
               <p className="kpi-sub">
-                {nextMonthEntries.length === 0 ? "sin pagos frecuentes" : "pagos del mes"}
+                {nextMonthEntries.length === 0 ? t("recurring.noFrequent") : t("recurring.monthlyPayments")}
               </p>
             </div>
 
@@ -289,7 +291,7 @@ export function RecurringExpenses() {
                 <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
                   <Wallet size={12} style={{ color: "var(--color-accent)", flexShrink: 0 }} />
                   <p className="kpi-label" style={{ margin: 0, color: "var(--color-accent)" }}>
-                    RESERVA /MES
+                    {t("recurring.monthlyReserve")}
                   </p>
                 </div>
                 {reserveEntries.map(([cur, total]) => (
@@ -305,20 +307,20 @@ export function RecurringExpenses() {
                     })}
                   </p>
                 ))}
-                <p className="kpi-sub">para pagos poco frecuentes</p>
+                <p className="kpi-sub">{t("recurring.forInfrequent")}</p>
               </div>
             )}
           </div>
         </div>
         <div className="kpi-card">
-          <p className="kpi-label">RECURRENTES ACTIVOS</p>
+          <p className="kpi-label">{t("recurring.activeRecurrents")}</p>
           <p className="kpi-value">{active.length}</p>
-          <p className="kpi-sub">suscripciones y gastos</p>
+          <p className="kpi-sub">{t("recurring.activeSubscriptions")}</p>
         </div>
         <div className="kpi-card">
-          <p className="kpi-label">CUOTAS EN CURSO</p>
+          <p className="kpi-label">{t("recurring.installmentsInProgressKpi")}</p>
           <p className="kpi-value">{installmentsInProgress}</p>
-          <p className="kpi-sub">planes de pago activos</p>
+          <p className="kpi-sub">{t("recurring.activeInstallmentPlans")}</p>
         </div>
       </div>
 
@@ -329,7 +331,7 @@ export function RecurringExpenses() {
           style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}
         >
           <span className="active-pulse" />
-          ACTIVOS ({active.length})
+          {t("recurring.activeSectionTitle", { count: active.length })}
         </div>
 
         {active.length === 0 ? (
@@ -346,7 +348,7 @@ export function RecurringExpenses() {
                 marginBottom: 6,
               }}
             >
-              Sin gastos recurrentes todavía
+              {t("recurring.noExpensesYet")}
             </p>
             <p
               style={{
@@ -356,8 +358,7 @@ export function RecurringExpenses() {
                 margin: "0 auto 20px",
               }}
             >
-              Registrá suscripciones, cuotas y gastos periódicos para llevar un
-              control automático.
+              {t("recurring.noExpensesYetDesc")}
             </p>
             <button
               className="button"
@@ -365,7 +366,7 @@ export function RecurringExpenses() {
               style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
             >
               <Plus size={14} />
-              Agregar primero
+              {t("recurring.addFirst")}
             </button>
           </div>
         ) : (
@@ -405,7 +406,7 @@ export function RecurringExpenses() {
             }}
           >
             <span className="recurring-section-title">
-              INACTIVOS / COMPLETADOS ({inactive.length})
+              {t("recurring.inactiveSectionTitle", { count: inactive.length })}
             </span>
             {showInactive ? (
               <ChevronUp size={14} color="var(--text-muted)" />
@@ -463,6 +464,7 @@ function RecurringCard({
   onCancelConfirm: () => void;
 }) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const paid = countPaidInstallments(item);
   const total = item.total_installments;
   const pct = total && total > 0 ? Math.round((paid / total) * 100) : null;
@@ -548,7 +550,7 @@ function RecurringCard({
                 style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
               >
                 <Calendar size={9} />
-                desde {fromDate}
+                {t("recurring.from", { date: fromDate })}
               </span>
             )}
           </div>
@@ -577,7 +579,7 @@ function RecurringCard({
                 marginTop: 1,
               }}
             >
-              de {item.currency}{" "}
+              {t("recurring.paidOf")} {item.currency}{" "}
               {item.total_purchase_amount.toLocaleString("es-UY")}
             </div>
           )}
@@ -607,7 +609,7 @@ function RecurringCard({
             <span
               style={{ fontSize: "0.79rem", color: "var(--text-secondary)" }}
             >
-              {paid} de {total} cuotas pagadas
+              {t("recurring.installmentsPaidOf", { paid, total })}
             </span>
             <span
               style={{
@@ -637,7 +639,7 @@ function RecurringCard({
               {(item.amount * paid).toLocaleString("es-UY", {
                 minimumFractionDigits: 2,
               })}{" "}
-              pagado de {item.currency}{" "}
+              {t("recurring.paidOf")} {item.currency}{" "}
               {item.total_purchase_amount.toLocaleString("es-UY", {
                 minimumFractionDigits: 2,
               })}
@@ -665,7 +667,7 @@ function RecurringCard({
               marginBottom: 4,
             }}
           >
-            ¿Confirmar cancelación?
+            {t("recurring.confirmCancelTitle")}
           </p>
           <p
             style={{
@@ -674,15 +676,14 @@ function RecurringCard({
               marginBottom: 10,
             }}
           >
-            No se generarán nuevas transacciones. Las existentes quedan en el
-            registro de gastos.
+            {t("recurring.confirmCancelText")}
           </p>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button
               className="button button--secondary button--small"
               onClick={onCancelAbort}
             >
-              No, volver
+              {t("recurring.cancelNo")}
             </button>
             <button
               className="button button--small"
@@ -693,7 +694,7 @@ function RecurringCard({
                 border: "1px solid rgba(248,113,113,0.3)",
               }}
             >
-              Sí, cancelar
+              {t("recurring.cancelYes")}
             </button>
           </div>
         </div>
@@ -715,7 +716,7 @@ function RecurringCard({
           style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
         >
           <Edit2 size={12} />
-          Editar
+          {t("recurring.editBtn")}
         </button>
         {!inactive && !showConfirm && (
           <button
@@ -724,7 +725,7 @@ function RecurringCard({
             style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
           >
             <XCircle size={12} />
-            Cancelar
+            {t("recurring.cancelActionBtn")}
           </button>
         )}
         <button
@@ -740,7 +741,7 @@ function RecurringCard({
           }}
         >
           <Trash2 size={12} />
-          Eliminar
+          {t("recurring.deleteBtn")}
         </button>
       </div>
     </div>

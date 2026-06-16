@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ScanSearch,
@@ -14,6 +15,7 @@ import {
   Pencil,
   Trash2,
   X,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
@@ -36,6 +38,23 @@ const CATEGORIES = [
   "Tecnología",
   "Otro",
 ] as const;
+
+const CATEGORY_I18N: Record<string, string> = {
+  "Comida": "categories.comida",
+  "Limpieza": "categories.limpieza",
+  "Salud": "categories.salud",
+  "Entretenimiento": "categories.entretenimiento",
+  "Hogar": "categories.hogar",
+  "Transporte": "categories.transporte",
+  "Vestimenta": "categories.vestimenta",
+  "Restaurante": "categories.restaurante",
+  "Cuidado Personal": "categories.cuidadoPersonal",
+  "Mascotas": "categories.mascotas",
+  "Servicios": "categories.servicios",
+  "Educación": "categories.educacion",
+  "Tecnología": "categories.tecnologia",
+  "Otro": "categories.otro",
+};
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -211,6 +230,10 @@ async function runScan(): Promise<{ scanned: number; autoMatched: number; needsR
 
 // ─── combobox component ────────────────────────────────────────────────────────
 
+function normalize(s: string) {
+  return s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
 function ProductCombobox({
   value,
   onChange,
@@ -224,17 +247,19 @@ function ProductCombobox({
   products: Product[];
   placeholder?: string;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
     if (!value.trim()) return products.slice(0, 8);
-    const q = value.toLowerCase();
-    return products.filter((p) => {
-      const name = p.name.toLowerCase();
+    const q = normalize(value);
+    const matches = products.filter((p) => {
+      const name = normalize(p.name);
       if (name.includes(q) || q.includes(name)) return true;
       return name.split(/[\s\W]+/).filter((w) => w.length >= 3).some((token) => q.includes(token));
-    }).slice(0, 8);
+    });
+    return (matches.length > 0 ? matches : products).slice(0, 8);
   }, [value, products]);
 
   useEffect(() => {
@@ -247,13 +272,13 @@ function ProductCombobox({
 
   return (
     <div ref={ref} style={{ position: "relative", flex: "2 1 200px" }}>
-      <label style={labelStyle}>Canonical name</label>
+      <label style={labelStyle}>{t("audit.canonical")}</label>
       <input
         value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         style={inputStyle}
-        placeholder={placeholder ?? "Type or select existing product…"}
+        placeholder={placeholder ?? t("audit.typeOrSelectProduct")}
         autoComplete="off"
       />
       {open && filtered.length > 0 && (
@@ -312,6 +337,7 @@ function ProductCombobox({
 
 export function ProductAudit() {
   const qc = useQueryClient();
+  const { t } = useTranslation();
 
   const auditQuery = useQuery({ queryKey: ["audit-items"], queryFn: fetchAuditItems, retry: false });
   const productsQuery = useQuery({ queryKey: ["all-products"], queryFn: fetchAllProducts, retry: false });
@@ -486,11 +512,18 @@ export function ProductAudit() {
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
   });
 
+  // ── search ────────────────────────────────────────────────────────────────
+
+  const [auditSearch, setAuditSearch] = useState("");
+
   // ── cluster state ─────────────────────────────────────────────────────────
 
   const [clusterEdits, setClusterEdits] = useState<Record<string, { canonicalName: string; category: string }>>({});
   const [clusterSelectedProduct, setClusterSelectedProduct] = useState<Record<string, Product | null>>({});
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
+  const [overridingClusters, setOverridingClusters] = useState<Set<string>>(new Set());
+  const [overrideEdits, setOverrideEdits] = useState<Record<string, string>>({});
+  const [overrideSelectedProduct, setOverrideSelectedProduct] = useState<Record<string, Product | null>>({});
 
   // catalog edit state
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -581,6 +614,28 @@ export function ProductAudit() {
   const allProducts = productsQuery.data ?? [];
   const allMappings = rawMappingsQuery.data ?? [];
 
+  const mappingsByProductId = useMemo(() => {
+    const map = new Map<string, typeof allMappings>();
+    for (const m of allMappings) {
+      const list = map.get(m.product_id) ?? [];
+      list.push(m);
+      map.set(m.product_id, list);
+    }
+    return map;
+  }, [allMappings]);
+
+  const visiblePotential = useMemo(() =>
+    auditSearch.trim()
+      ? potentialClusters.filter((c) => c.rawName.toLowerCase().includes(auditSearch.toLowerCase()))
+      : potentialClusters,
+  [potentialClusters, auditSearch]);
+
+  const visibleNew = useMemo(() =>
+    auditSearch.trim()
+      ? newCandidateClusters.filter((c) => c.rawName.toLowerCase().includes(auditSearch.toLowerCase()))
+      : newCandidateClusters,
+  [newCandidateClusters, auditSearch]);
+
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
@@ -590,10 +645,10 @@ export function ProductAudit() {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28, gap: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700, color: "var(--text-primary)" }}>
-            Product Audit
+            {t("audit.productAuditTitle")}
           </h1>
           <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-            Map raw receipt text to your canonical product catalog for statistical consistency.
+            {t("audit.productAuditDesc")}
           </p>
         </div>
         <button
@@ -602,7 +657,7 @@ export function ProductAudit() {
           style={{ display: "flex", alignItems: "center", gap: 7, background: "var(--color-accent)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontWeight: 600, fontSize: "0.85rem", cursor: scanMutation.isPending ? "wait" : "pointer", flexShrink: 0, opacity: scanMutation.isPending ? 0.7 : 1 }}
         >
           {scanMutation.isPending ? <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> : <ScanSearch size={15} />}
-          {scanMutation.isPending ? "Scanning…" : "Scan Unmapped Items"}
+          {scanMutation.isPending ? t("audit.scanning") : t("audit.scanBtn")}
         </button>
       </div>
 
@@ -611,7 +666,7 @@ export function ProductAudit() {
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 10, padding: "16px 18px", marginBottom: 24 }}>
           <AlertTriangle size={18} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: 2 }} />
           <div>
-            <p style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--color-danger)", fontSize: "0.9rem" }}>Database migration required</p>
+            <p style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--color-danger)", fontSize: "0.9rem" }}>{t("audit.migrationTitle")}</p>
             <p style={{ margin: "0 0 10px", fontSize: "0.83rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
               Run migration <strong>0008_product_normalization.sql</strong> then <strong>0021_product_admin_controls.sql</strong> in your Supabase SQL editor, then reload.
             </p>
@@ -622,16 +677,16 @@ export function ProductAudit() {
       {/* Stat chips */}
       {!isLoading && !isMigrationNeeded && (
         <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
-          <StatChip color="var(--color-accent)" label="Potential matches" count={potentialClusters.length} icon={<ArrowRightLeft size={14} />} />
-          <StatChip color="#f59e0b" label="New candidates" count={newCandidateClusters.length} icon={<Plus size={14} />} />
-          {totalPending === 0 && <StatChip color="var(--color-success)" label="All clear — nothing pending" count={null} icon={<CheckCircle2 size={14} />} />}
+          <StatChip color="var(--color-accent)" label={t("audit.potentialMatchesChip")} count={potentialClusters.length} icon={<ArrowRightLeft size={14} />} />
+          <StatChip color="#f59e0b" label={t("audit.newCandidatesChip")} count={newCandidateClusters.length} icon={<Plus size={14} />} />
+          {totalPending === 0 && <StatChip color="var(--color-success)" label={t("audit.allClearChip")} count={null} icon={<CheckCircle2 size={14} />} />}
         </div>
       )}
 
       {isLoading && !isMigrationNeeded && (
         <div style={{ textAlign: "center", padding: 48, color: "var(--text-muted)" }}>
           <Loader2 size={24} style={{ animation: "spin 1s linear infinite", margin: "0 auto 8px" }} />
-          <p style={{ margin: 0, fontSize: "0.85rem" }}>Loading audit data…</p>
+          <p style={{ margin: 0, fontSize: "0.85rem" }}>{t("audit.loadingAudit")}</p>
         </div>
       )}
 
@@ -641,18 +696,34 @@ export function ProductAudit() {
 
           {/* ── LEFT: audit queue ──────────────────────────────────────── */}
           <div>
+            {/* Search */}
+            {totalPending > 0 && (
+              <div style={{ position: "relative", marginBottom: 20 }}>
+                <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+                <input
+                  value={auditSearch}
+                  onChange={(e) => setAuditSearch(e.target.value)}
+                  placeholder={t("audit.filterRaw")}
+                  style={{ ...inputStyle, paddingLeft: 32 }}
+                />
+              </div>
+            )}
+
             {/* Potential Matches */}
-            {potentialClusters.length > 0 && (
+            {visiblePotential.length > 0 && (
               <section style={{ marginBottom: 36 }}>
-                <SectionHeader icon={<ArrowRightLeft size={16} />} title="Potential Matches" subtitle="Fuzzy score 60–90% — confirm or reclassify as new." color="var(--color-accent)" />
+                <SectionHeader icon={<ArrowRightLeft size={16} />} title={t("audit.potentialMatchesSection")} subtitle={t("audit.potentialMatchesDesc")} color="var(--color-accent)" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {potentialClusters.map((cluster) => {
+                  {visiblePotential.map((cluster) => {
                     const suggestedProduct = cluster.items[0].suggested_product_id
                       ? productsById.get(cluster.items[0].suggested_product_id)
                       : null;
                     const isPending = confirmMutation.isPending || treatAsNewMutation.isPending;
                     const isExpanded = expandedClusters.has(cluster.key);
                     const isAdmin = isAdminOf(cluster.groupId);
+                    const isOverriding = overridingClusters.has(cluster.key);
+                    const overrideEdit = overrideEdits[cluster.key] ?? "";
+                    const overrideProduct = overrideSelectedProduct[cluster.key] ?? null;
                     return (
                       <div key={cluster.key} style={cardStyle}>
                         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
@@ -661,39 +732,89 @@ export function ProductAudit() {
                               {isExpanded ? <ChevronDown size={13} color="var(--text-muted)" /> : <ChevronRight size={13} color="var(--text-muted)" />}
                               <Tag size={13} color="var(--text-muted)" />
                               <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                                Raw name · {cluster.items.length} item{cluster.items.length !== 1 ? "s" : ""}
+                                {t("audit.rawNameCount", { count: cluster.items.length })}
                               </span>
                             </button>
                             <p style={{ margin: "0 0 10px", fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)", wordBreak: "break-word" }}>
                               {cluster.rawName}
                             </p>
-                            {suggestedProduct ? (
-                              <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(59,130,246,0.10)", border: "1px solid rgba(59,130,246,0.25)", borderRadius: 6, padding: "5px 10px", fontSize: "0.82rem" }}>
-                                <Package size={13} color="var(--color-accent)" />
-                                <span style={{ color: "var(--color-accent)", fontWeight: 600 }}>{suggestedProduct.name}</span>
-                                {suggestedProduct.category && <span style={{ color: "var(--text-muted)" }}>· {suggestedProduct.category}</span>}
-                                {cluster.similarity !== undefined && (
-                                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>· {Math.round(cluster.similarity * 100)}%</span>
+                            {!isOverriding && (suggestedProduct ? (
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(59,130,246,0.10)", border: "1px solid rgba(59,130,246,0.25)", borderRadius: 6, padding: "5px 10px", fontSize: "0.82rem" }}>
+                                  <Package size={13} color="var(--color-accent)" />
+                                  <span style={{ color: "var(--color-accent)", fontWeight: 600 }}>{suggestedProduct.name}</span>
+                                  {suggestedProduct.category && <span style={{ color: "var(--text-muted)" }}>· {suggestedProduct.category}</span>}
+                                  {cluster.similarity !== undefined && (
+                                    <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>· {Math.round(cluster.similarity * 100)}%</span>
+                                  )}
+                                </div>
+                                {isAdmin && (
+                                  <button
+                                    onClick={() => {
+                                      setOverridingClusters((prev) => { const s = new Set(prev); s.add(cluster.key); return s; });
+                                      setOverrideEdits((prev) => ({ ...prev, [cluster.key]: "" }));
+                                      setOverrideSelectedProduct((prev) => ({ ...prev, [cluster.key]: null }));
+                                    }}
+                                    style={{ background: "none", border: "none", padding: 0, fontSize: "0.75rem", color: "var(--text-muted)", cursor: "pointer", textDecoration: "underline" }}
+                                  >
+                                    {t("audit.wrongMatch")}
+                                  </button>
                                 )}
                               </div>
                             ) : (
-                              <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Suggested product not found</span>
+                              <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>{t("audit.suggestedNotFound")}</span>
+                            ))}
+                            {isOverriding && isAdmin && (
+                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 4 }}>
+                                <ProductCombobox
+                                  value={overrideEdit}
+                                  onChange={(v) => {
+                                    setOverrideEdits((prev) => ({ ...prev, [cluster.key]: v }));
+                                    setOverrideSelectedProduct((prev) => ({ ...prev, [cluster.key]: null }));
+                                  }}
+                                  onSelect={(p) => {
+                                    setOverrideEdits((prev) => ({ ...prev, [cluster.key]: p.name }));
+                                    setOverrideSelectedProduct((prev) => ({ ...prev, [cluster.key]: p }));
+                                  }}
+                                  products={(productsQuery.data ?? []).filter((p) => p.group_id === cluster.groupId)}
+                                  placeholder={t("audit.selectCorrectProduct")}
+                                />
+                                <div style={{ display: "flex", gap: 7, alignSelf: "flex-end" }}>
+                                  <button
+                                    disabled={isPending || !overrideProduct}
+                                    onClick={() => {
+                                      if (!overrideProduct) return;
+                                      confirmMutation.mutate({ rawName: cluster.rawName, productId: overrideProduct.id, groupId: cluster.groupId });
+                                      setOverridingClusters((prev) => { const s = new Set(prev); s.delete(cluster.key); return s; });
+                                    }}
+                                    style={{ ...primaryBtn, opacity: !overrideProduct || isPending ? 0.5 : 1 }}
+                                  >
+                                    <CheckCircle2 size={13} /> {t("audit.confirmOverride")}
+                                  </button>
+                                  <button
+                                    onClick={() => setOverridingClusters((prev) => { const s = new Set(prev); s.delete(cluster.key); return s; })}
+                                    style={ghostBtn}
+                                  >
+                                    <X size={13} /> {t("common.cancel")}
+                                  </button>
+                                </div>
+                              </div>
                             )}
                           </div>
-                          {isAdmin ? (
+                          {isAdmin && !isOverriding ? (
                             <div style={{ display: "flex", flexDirection: "column", gap: 7, flexShrink: 0 }}>
                               {suggestedProduct && (
                                 <button disabled={isPending} onClick={() => confirmMutation.mutate({ rawName: cluster.rawName, productId: suggestedProduct.id, groupId: cluster.groupId })} style={primaryBtn}>
-                                  <CheckCircle2 size={13} /> Confirm Match
+                                  <CheckCircle2 size={13} /> {t("audit.confirmMatch")}
                                 </button>
                               )}
                               <button disabled={isPending} onClick={() => treatAsNewMutation.mutate({ ids: cluster.items.map((i) => i.id), rawName: cluster.rawName })} style={ghostBtn}>
-                                <Plus size={13} /> Treat as New
+                                <Plus size={13} /> {t("audit.treatAsNew")}
                               </button>
                             </div>
-                          ) : (
-                            <p style={{ margin: 0, fontSize: "0.79rem", color: "var(--text-muted)" }}>Only admins can confirm.</p>
-                          )}
+                          ) : (!isAdmin && (
+                            <p style={{ margin: 0, fontSize: "0.79rem", color: "var(--text-muted)" }}>{t("audit.onlyAdminsConfirm")}</p>
+                          ))}
                         </div>
                         {isExpanded && <TransactionItemList items={cluster.items} />}
                       </div>
@@ -704,11 +825,11 @@ export function ProductAudit() {
             )}
 
             {/* New Product Candidates */}
-            {newCandidateClusters.length > 0 && (
+            {visibleNew.length > 0 && (
               <section style={{ marginBottom: 36 }}>
-                <SectionHeader icon={<Plus size={16} />} title="New Product Candidates" subtitle="No match found — type a canonical name or select an existing product." color="#f59e0b" />
+                <SectionHeader icon={<Plus size={16} />} title={t("audit.newCandidatesSection")} subtitle={t("audit.newCandidatesDesc")} color="#f59e0b" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {newCandidateClusters.map((cluster) => {
+                  {visibleNew.map((cluster) => {
                     const edit = getClusterEdit(cluster.key, cluster.rawName, cluster.category ?? "Otro");
                     const selectedProduct = clusterSelectedProduct[cluster.key] ?? null;
                     const isPending = approveMutation.isPending;
@@ -720,7 +841,7 @@ export function ProductAudit() {
                           {isExpanded ? <ChevronDown size={13} color="var(--text-muted)" /> : <ChevronRight size={13} color="var(--text-muted)" />}
                           <Tag size={13} color="var(--text-muted)" />
                           <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                            Raw name · {cluster.items.length} item{cluster.items.length !== 1 ? "s" : ""}
+                            {t("audit.rawNameCount", { count: cluster.items.length })}
                           </span>
                         </button>
                         <p style={{ margin: "0 0 14px", fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)", wordBreak: "break-word" }}>
@@ -735,13 +856,13 @@ export function ProductAudit() {
                               products={productsQuery.data ?? []}
                             />
                             <div style={{ flex: "1 1 140px" }}>
-                              <label style={labelStyle}>Category</label>
+                              <label style={labelStyle}>{t("audit.categoryLabel")}</label>
                               <select
                                 value={edit.category}
                                 onChange={(e) => setClusterField(cluster.key, "category", e.target.value, cluster.rawName, cluster.category ?? "Otro")}
                                 style={inputStyle}
                               >
-                                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                                {CATEGORIES.map((c) => <option key={c} value={c}>{t(CATEGORY_I18N[c] ?? c)}</option>)}
                               </select>
                             </div>
                             <button
@@ -750,13 +871,13 @@ export function ProductAudit() {
                               style={{ ...primaryBtn, background: selectedProduct ? "var(--color-accent)" : "#f59e0b", alignSelf: "flex-end", opacity: isPending || !edit.canonicalName.trim() ? 0.5 : 1 }}
                             >
                               {selectedProduct
-                                ? <><ArrowRightLeft size={13} /> Map to "{selectedProduct.name}"</>
-                                : <><Plus size={13} /> Add to Catalog</>
+                                ? <><ArrowRightLeft size={13} /> {t("audit.mapTo", { name: selectedProduct.name })}</>
+                                : <><Plus size={13} /> {t("audit.addToCatalog")}</>
                               }
                             </button>
                           </div>
                         ) : (
-                          <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>Only group admins can add products.</p>
+                          <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>{t("audit.onlyAdminsAdd")}</p>
                         )}
                         {isExpanded && <TransactionItemList items={cluster.items} />}
                       </div>
@@ -766,13 +887,20 @@ export function ProductAudit() {
               </section>
             )}
 
+            {/* No search results */}
+            {auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
+              <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                {t("audit.noSearchResults", { query: auditSearch })}
+              </div>
+            )}
+
             {/* Empty state */}
             {totalPending === 0 && !scanMutation.isPending && (
               <div style={{ textAlign: "center", padding: "56px 24px", background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border-color)" }}>
                 <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: "0 auto 14px" }} />
-                <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>All items are mapped</p>
+                <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>{t("audit.allMapped")}</p>
                 <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>
-                  Click <strong>Scan Unmapped Items</strong> to check for new receipts that need normalization.
+                  {t("audit.allMappedDesc")}
                 </p>
               </div>
             )}
@@ -786,77 +914,89 @@ export function ProductAudit() {
               <section style={{ marginBottom: 24 }}>
                 <SectionHeader
                   icon={<Package size={16} />}
-                  title="Product Catalog"
-                  subtitle={`${allProducts.length} canonical product${allProducts.length !== 1 ? "s" : ""}`}
+                  title={t("audit.productCatalogSection")}
+                  subtitle={t("audit.productCatalogCount", { count: allProducts.length })}
                   color="var(--text-muted)"
                 />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {allProducts.map((product) => {
                     const isEditing = editingProductId === product.id;
                     const isAdmin = isAdminOf(product.group_id ?? "");
+                    const productMappings = mappingsByProductId.get(product.id) ?? [];
                     return (
-                      <div key={product.id} style={{ ...cardStyle, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8 }}>
-                        <Package size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
-                        {isEditing ? (
-                          <>
-                            <input
-                              value={productEditName}
-                              onChange={(e) => setProductEditName(e.target.value)}
-                              style={{ ...inputStyle, flex: 1, padding: "5px 8px", fontSize: "0.82rem" }}
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && productEditName.trim())
-                                  renameMutation.mutate({ productId: product.id, name: productEditName, category: productEditCategory });
-                                if (e.key === "Escape") setEditingProductId(null);
-                              }}
-                            />
-                            <select
-                              value={productEditCategory}
-                              onChange={(e) => setProductEditCategory(e.target.value)}
-                              style={{ ...inputStyle, width: "auto", padding: "5px 6px", fontSize: "0.78rem" }}
-                            >
-                              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                            <button
-                              onClick={() => renameMutation.mutate({ productId: product.id, name: productEditName, category: productEditCategory })}
-                              disabled={renameMutation.isPending || !productEditName.trim()}
-                              style={{ ...primaryBtn, padding: "5px 10px", fontSize: "0.78rem" }}
-                            >
-                              Save
-                            </button>
-                            <button onClick={() => setEditingProductId(null)} style={{ ...ghostBtn, padding: "5px 8px" }}>
-                              <X size={12} />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ flex: 1, fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{product.name}</span>
-                            {product.category && (
-                              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", background: "var(--bg-secondary)", borderRadius: 4, padding: "2px 6px", flexShrink: 0 }}>{product.category}</span>
-                            )}
-                            {isAdmin && (
-                              <>
-                                <button
-                                  onClick={() => { setEditingProductId(product.id); setProductEditName(product.name); setProductEditCategory(product.category ?? "Otro"); }}
-                                  style={{ ...ghostBtn, padding: "4px 8px" }}
-                                  title="Rename product"
-                                >
-                                  <Pencil size={12} />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    if (confirm(`Delete "${product.name}"? Affected items will need to be re-mapped.`))
-                                      deleteMutation.mutate(product.id);
-                                  }}
-                                  disabled={deleteMutation.isPending}
-                                  style={{ ...ghostBtn, padding: "4px 8px", color: "var(--color-danger)", borderColor: "rgba(248,113,113,0.3)" }}
-                                  title="Delete product"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              </>
-                            )}
-                          </>
+                      <div key={product.id} style={{ ...cardStyle, padding: "10px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <Package size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                          {isEditing ? (
+                            <>
+                              <input
+                                value={productEditName}
+                                onChange={(e) => setProductEditName(e.target.value)}
+                                style={{ ...inputStyle, flex: 1, padding: "5px 8px", fontSize: "0.82rem" }}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && productEditName.trim())
+                                    renameMutation.mutate({ productId: product.id, name: productEditName, category: productEditCategory });
+                                  if (e.key === "Escape") setEditingProductId(null);
+                                }}
+                              />
+                              <select
+                                value={productEditCategory}
+                                onChange={(e) => setProductEditCategory(e.target.value)}
+                                style={{ ...inputStyle, width: "auto", padding: "5px 6px", fontSize: "0.78rem" }}
+                              >
+                                {CATEGORIES.map((c) => <option key={c} value={c}>{t(CATEGORY_I18N[c] ?? c)}</option>)}
+                              </select>
+                              <button
+                                onClick={() => renameMutation.mutate({ productId: product.id, name: productEditName, category: productEditCategory })}
+                                disabled={renameMutation.isPending || !productEditName.trim()}
+                                style={{ ...primaryBtn, padding: "5px 10px", fontSize: "0.78rem" }}
+                              >
+                                {t("common.save")}
+                              </button>
+                              <button onClick={() => setEditingProductId(null)} style={{ ...ghostBtn, padding: "5px 8px" }}>
+                                <X size={12} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <span style={{ flex: 1, fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{product.name}</span>
+                              {product.category && (
+                                <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", background: "var(--bg-secondary)", borderRadius: 4, padding: "2px 6px", flexShrink: 0 }}>{product.category}</span>
+                              )}
+                              {isAdmin && (
+                                <>
+                                  <button
+                                    onClick={() => { setEditingProductId(product.id); setProductEditName(product.name); setProductEditCategory(product.category ?? "Otro"); }}
+                                    style={{ ...ghostBtn, padding: "4px 8px" }}
+                                    title="Rename product"
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(t("audit.deleteProductConfirm", { name: product.name })))
+                                        deleteMutation.mutate(product.id);
+                                    }}
+                                    disabled={deleteMutation.isPending}
+                                    style={{ ...ghostBtn, padding: "4px 8px", color: "var(--color-danger)", borderColor: "rgba(248,113,113,0.3)" }}
+                                    title="Delete product"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        {!isEditing && productMappings.length > 0 && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 7, paddingLeft: 21 }}>
+                            {productMappings.map((m) => (
+                              <span key={m.id} style={{ fontSize: "0.68rem", color: "var(--text-muted)", background: "var(--bg-secondary)", borderRadius: 4, padding: "2px 6px", border: "1px solid var(--border-color)" }}>
+                                {m.raw_name}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </div>
                     );
@@ -870,8 +1010,8 @@ export function ProductAudit() {
               <section>
                 <SectionHeader
                   icon={<CheckCircle2 size={16} />}
-                  title="Confirmed Mappings"
-                  subtitle="Raw names permanently linked to canonical products. Future scans skip the review queue for these."
+                  title={t("audit.confirmedMappingsSection")}
+                  subtitle={t("audit.confirmedMappingsDesc")}
                   color="var(--color-success)"
                 />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -879,26 +1019,26 @@ export function ProductAudit() {
                     const product = productsById.get(mapping.product_id);
                     const isAdmin = isAdminOf(mapping.group_id);
                     return (
-                      <div key={mapping.id} style={{ ...cardStyle, padding: "9px 14px", display: "flex", alignItems: "center", gap: 8 }}>
-                        <Tag size={12} color="var(--text-muted)" style={{ flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontSize: "0.8rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={mapping.raw_name}>
+                      <div key={mapping.id} style={{ ...cardStyle, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                        <Tag size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: "0.83rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={mapping.raw_name}>
                           {mapping.raw_name}
                         </span>
-                        <ArrowRightLeft size={11} color="var(--text-muted)" style={{ flexShrink: 0 }} />
-                        <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--color-success)", flexShrink: 0, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={product?.name}>
-                          {product?.name ?? "Unknown"}
+                        <ArrowRightLeft size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                        <span style={{ fontSize: "0.83rem", fontWeight: 600, color: "var(--color-success)", flexShrink: 0 }}>
+                          {product?.name ?? t("audit.unknownProduct")}
                         </span>
                         {isAdmin && (
                           <button
                             onClick={() => {
-                              if (confirm(`Remove mapping "${mapping.raw_name}" → "${product?.name}"?\nItems with this raw name will re-appear in the audit queue on next scan.`))
+                              if (confirm(t("audit.removeMappingConfirm", { raw: mapping.raw_name, product: product?.name ?? "" })))
                                 deleteMappingMutation.mutate(mapping.id);
                             }}
                             disabled={deleteMappingMutation.isPending}
-                            style={{ ...ghostBtn, padding: "3px 7px", color: "var(--color-danger)", borderColor: "rgba(248,113,113,0.3)", flexShrink: 0 }}
+                            style={{ ...ghostBtn, padding: "4px 8px", color: "var(--color-danger)", borderColor: "rgba(248,113,113,0.3)", flexShrink: 0 }}
                             title="Remove mapping"
                           >
-                            <X size={12} />
+                            <X size={13} />
                           </button>
                         )}
                       </div>
@@ -911,7 +1051,7 @@ export function ProductAudit() {
             {allProducts.length === 0 && allMappings.length === 0 && (
               <div style={{ ...cardStyle, padding: "24px 16px", textAlign: "center" }}>
                 <Package size={28} color="var(--text-muted)" style={{ margin: "0 auto 10px" }} />
-                <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>No products yet — add your first from the queue.</p>
+                <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>{t("audit.noProductsYet")}</p>
               </div>
             )}
           </div>

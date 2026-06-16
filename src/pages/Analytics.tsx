@@ -16,6 +16,7 @@ import {
   ComposedChart,
 } from "recharts";
 import { Download } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import type { Transaction, TransactionItem, Vendor } from "../types";
@@ -46,15 +47,7 @@ type Tab =
   | "groups"
   | "export";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "trends", label: "Trends" },
-  { id: "products", label: "Products" },
-  { id: "anomalies", label: "Anomalies" },
-  { id: "pareto", label: "Pareto" },
-  { id: "groups", label: "Groups" },
-  { id: "export", label: "Export" },
-];
+const TAB_IDS: Tab[] = ["overview", "trends", "products", "anomalies", "pareto", "groups", "export"];
 
 type EnrichedItem = TransactionItem & {
   transactionDate: string | null;
@@ -71,6 +64,7 @@ const TOOLTIP_STYLE = {
 
 export function Analytics() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -420,8 +414,8 @@ export function Analytics() {
     return (
       <main className="page">
         <div className="page__header">
-          <p className="eyebrow">Analytics</p>
-          <h1>Statistical Dashboard</h1>
+          <p className="eyebrow">{t("analytics.eyebrow")}</p>
+          <h1>{t("analytics.loadingTitle")}</h1>
         </div>
         <div className="content-block">
           <div className="skeleton-loader">
@@ -440,25 +434,23 @@ export function Analytics() {
     <main className="page analytics-page">
       <div className="page__header">
         <div>
-          <p className="eyebrow">Phase 3</p>
-          <h1>Statistical Analytics</h1>
+          <p className="eyebrow">{t("analytics.eyebrow")}</p>
+          <h1>{t("analytics.title")}</h1>
           <p>
-            Insights from {transactions.length} reviewed transaction
-            {transactions.length !== 1 ? "s" : ""} across {categorySpend.length}{" "}
-            categor{categorySpend.length !== 1 ? "ies" : "y"}.
+            {t("analytics.subtitle", { count: transactions.length, categories: categorySpend.length })}
           </p>
         </div>
       </div>
 
       <div className="analytics-tabs">
-        {TABS.map((tab) => (
+        {TAB_IDS.map((id) => (
           <button
-            key={tab.id}
+            key={id}
             type="button"
-            className={`analytics-tab${activeTab === tab.id ? " active" : ""}`}
-            onClick={() => setActiveTab(tab.id)}
+            className={`analytics-tab${activeTab === id ? " active" : ""}`}
+            onClick={() => setActiveTab(id)}
           >
-            {tab.label}
+            {t(`analytics.${id}`)}
           </button>
         ))}
       </div>
@@ -466,7 +458,7 @@ export function Analytics() {
       {!hasData && (
         <div className="content-block" style={{ marginTop: 16 }}>
           <p className="muted">
-            No reviewed expenses found. Approve transactions in the Review Queue first.
+            {t("analytics.noData")}
           </p>
         </div>
       )}
@@ -478,19 +470,19 @@ export function Analytics() {
             <>
               <div className="kpi-row">
                 <div className="kpi-card">
-                  <span className="kpi-label">Total Spend</span>
+                  <span className="kpi-label">{t("analytics.totalSpend")}</span>
                   <span className="kpi-value">${totalSpend.toFixed(2)}</span>
                 </div>
                 <div className="kpi-card">
-                  <span className="kpi-label">Transactions</span>
+                  <span className="kpi-label">{t("analytics.numTransactions")}</span>
                   <span className="kpi-value">{transactions.length}</span>
                 </div>
                 <div className="kpi-card">
-                  <span className="kpi-label">Avg / Transaction</span>
+                  <span className="kpi-label">{t("analytics.avgTransaction")}</span>
                   <span className="kpi-value">${avgPerTransaction.toFixed(2)}</span>
                 </div>
                 <div className="kpi-card">
-                  <span className="kpi-label">Top Category</span>
+                  <span className="kpi-label">{t("analytics.topCategory")}</span>
                   <span className="kpi-value kpi-value--sm">
                     {categorySpend[0]?.name ?? "—"}
                   </span>
@@ -499,7 +491,7 @@ export function Analytics() {
 
               <div className="chart-grid">
                 <div className="content-block chart-block">
-                  <h3 className="chart-title">Spend by Category</h3>
+                  <h3 className="chart-title">{t("analytics.spendByCategory")}</h3>
                   <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie
@@ -524,7 +516,7 @@ export function Analytics() {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: unknown) => [`$${Number(value).toFixed(2)}`, "Spend"]}
+                        formatter={(value: unknown) => [`$${Number(value).toFixed(2)}`, t("analytics.spend")]}
                         contentStyle={TOOLTIP_STYLE}
                         labelStyle={{ color: "#f0f6fc" }}
                         itemStyle={{ color: "#8b949e" }}
@@ -534,7 +526,7 @@ export function Analytics() {
                 </div>
 
                 <div className="content-block chart-block">
-                  <h3 className="chart-title">Category Breakdown</h3>
+                  <h3 className="chart-title">{t("analytics.categoryBreakdown")}</h3>
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart
                       data={categorySpend}
@@ -561,7 +553,7 @@ export function Analytics() {
                         width={110}
                       />
                       <Tooltip
-                        formatter={(value: unknown) => [`$${Number(value).toFixed(2)}`, "Spend"]}
+                        formatter={(value: unknown) => [`$${Number(value).toFixed(2)}`, t("analytics.spend")]}
                         contentStyle={TOOLTIP_STYLE}
                         labelStyle={{ color: "#f0f6fc" }}
                         itemStyle={{ color: "#8b949e" }}
@@ -586,9 +578,9 @@ export function Analytics() {
             <>
               {/* Category over-time chart */}
               <div className="content-block">
-                <h3 className="chart-title">Expenses Over Time by Category</h3>
+                <h3 className="chart-title">{t("analytics.expensesOverTime")}</h3>
                 <p className="chart-subtitle">
-                  Daily spend per item category. Toggle categories to compare.
+                  {t("analytics.expensesOverTimeDesc")}
                 </p>
 
                 {/* Category filter pills */}
@@ -598,7 +590,7 @@ export function Analytics() {
                     className={`cat-pill cat-pill--all${selectedCategories.size === activeCategories.length ? " active" : ""}`}
                     onClick={toggleAll}
                   >
-                    All
+                    {t("analytics.all")}
                   </button>
                   {activeCategories.map((cat) => (
                     <button
@@ -628,8 +620,8 @@ export function Analytics() {
                 {categoryTrendsData.length < 2 || !selectedCategories.size ? (
                   <p className="muted" style={{ marginTop: 12 }}>
                     {!selectedCategories.size
-                      ? "Select at least one category."
-                      : "Need at least 2 dates with data to show a trend."}
+                      ? t("analytics.selectOneCategory")
+                      : t("analytics.needMoreDates")}
                   </p>
                 ) : (
                   <ResponsiveContainer width="100%" height={360}>
@@ -683,13 +675,13 @@ export function Analytics() {
 
               {/* Moving averages (total) */}
               <div className="content-block">
-                <h3 className="chart-title">Daily Total with Moving Averages</h3>
+                <h3 className="chart-title">{t("analytics.dailyTotalMA")}</h3>
                 <p className="chart-subtitle">
-                  7-day and 30-day moving averages smooth day-to-day noise.
+                  {t("analytics.dailyTotalMADesc")}
                 </p>
                 {trendsData.length < 2 ? (
                   <p className="muted">
-                    Need at least 2 transactions with dates.
+                    {t("analytics.needTwoTransactions")}
                   </p>
                 ) : (
                   <ResponsiveContainer width="100%" height={280}>
@@ -728,7 +720,7 @@ export function Analytics() {
                         dataKey="total"
                         stroke="#3b82f6"
                         dot={false}
-                        name="Daily Total"
+                        name={t("analytics.dailyTotal")}
                         strokeWidth={1.5}
                         strokeOpacity={0.45}
                       />
@@ -737,7 +729,7 @@ export function Analytics() {
                         dataKey="ma7"
                         stroke="#34d399"
                         dot={false}
-                        name="7-Day MA"
+                        name={t("analytics.ma7")}
                         strokeWidth={2}
                       />
                       <Line
@@ -745,7 +737,7 @@ export function Analytics() {
                         dataKey="ma30"
                         stroke="#f59e0b"
                         dot={false}
-                        name="30-Day MA"
+                        name={t("analytics.ma30")}
                         strokeWidth={2}
                       />
                     </LineChart>
@@ -758,17 +750,17 @@ export function Analytics() {
           {/* ── PRODUCTS ── */}
           {activeTab === "products" && (
             <div className="content-block">
-              <h3 className="chart-title">Product Price History — Inflation Index</h3>
+              <h3 className="chart-title">{t("analytics.priceHistory")}</h3>
               <p className="chart-subtitle">
-                Track how the unit price of a specific product evolved over time.
+                {t("analytics.priceHistoryDesc")}
               </p>
               {productNames.length === 0 ? (
-                <p className="muted">No product data available.</p>
+                <p className="muted">{t("analytics.noProductData")}</p>
               ) : (
                 <>
                   <div style={{ marginBottom: 24 }}>
                     <label>
-                      Product
+                      {t("analytics.productLabel")}
                       <select
                         value={selectedProduct}
                         onChange={(e) => setSelectedProduct(e.target.value)}
@@ -784,8 +776,7 @@ export function Analytics() {
                   </div>
                   {productPriceHistory.length < 2 ? (
                     <p className="muted">
-                      Only one purchase found for this product — need more data to
-                      show price trends.
+                      {t("analytics.onlyOnePurchase")}
                     </p>
                   ) : (
                     <ResponsiveContainer width="100%" height={300}>
@@ -815,7 +806,7 @@ export function Analytics() {
                           itemStyle={{ color: "#8b949e" }}
                           formatter={(value: unknown, name: unknown) => [
                             `$${Number(value).toFixed(2)}`,
-                            name === "unit_price" ? "Unit Price" : String(name),
+                            name === "unit_price" ? t("analytics.unitPrice") : String(name),
                           ]}
                         />
                         <Line
@@ -837,14 +828,13 @@ export function Analytics() {
           {/* ── ANOMALIES ── */}
           {activeTab === "anomalies" && (
             <div className="content-block">
-              <h3 className="chart-title">Anomaly Detection</h3>
+              <h3 className="chart-title">{t("analytics.anomalyDetection")}</h3>
               <p className="chart-subtitle">
-                Items priced more than 2 standard deviations from their category
-                mean — potential pricing errors or unusual spending spikes.
+                {t("analytics.anomalyDetectionDesc")}
               </p>
               {anomalies.length === 0 ? (
                 <p className="muted" style={{ marginTop: 16 }}>
-                  No anomalies detected — all items are within normal ranges.
+                  {t("analytics.noAnomalies")}
                 </p>
               ) : (
                 <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -859,7 +849,7 @@ export function Analytics() {
                         </span>
                         <span className="small-text muted">
                           {item.transactionDate?.slice(0, 10)} ·{" "}
-                          {item.transactionVendor ?? "Unknown"}
+                          {item.transactionVendor ?? t("analytics.unknown")}
                         </span>
                       </div>
                       <div className="anomaly-row__stats">
@@ -883,9 +873,9 @@ export function Analytics() {
             <div className="content-block">
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 4 }}>
                 <div>
-                  <h3 className="chart-title" style={{ margin: 0 }}>Pareto Analysis — 80/20 Rule</h3>
+                  <h3 className="chart-title" style={{ margin: 0 }}>{t("analytics.paretoTitle")}</h3>
                   <p className="chart-subtitle">
-                    Identify the vendors responsible for the majority of your total spend.
+                    {t("analytics.paretoDesc")}
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: 0, borderRadius: 7, overflow: "hidden", border: "1px solid var(--border-color)", flexShrink: 0, alignSelf: "flex-start" }}>
@@ -904,13 +894,13 @@ export function Analytics() {
                         transition: "background 0.15s",
                       }}
                     >
-                      {mode === "canonical" ? "Canonical" : "Raw name"}
+                      {mode === "canonical" ? t("analytics.canonical") : t("analytics.rawName")}
                     </button>
                   ))}
                 </div>
               </div>
               {vendorPareto.length === 0 ? (
-                <p className="muted">No vendor data available.</p>
+                <p className="muted">{t("analytics.noVendorData")}</p>
               ) : (
                 <>
                   <ResponsiveContainer width="100%" height={340}>
@@ -953,8 +943,8 @@ export function Analytics() {
                         itemStyle={{ color: "#8b949e" }}
                         formatter={(value: unknown, name: unknown) =>
                           name === "cumPct"
-                            ? [`${value}%`, "Cumulative %"]
-                            : [`$${Number(value).toFixed(2)}`, "Spend"]
+                            ? [`${value}%`, t("analytics.cumulativePct")]
+                            : [`$${Number(value).toFixed(2)}`, t("analytics.spend")]
                         }
                       />
                       <Bar
@@ -962,7 +952,7 @@ export function Analytics() {
                         dataKey="total"
                         fill="#3b82f6"
                         radius={[4, 4, 0, 0]}
-                        name="Spend"
+                        name={t("analytics.spend")}
                       />
                       <Line
                         yAxisId="right"
@@ -983,10 +973,9 @@ export function Analytics() {
                     return (
                       <p className="small-text" style={{ marginTop: 16 }}>
                         <strong style={{ color: "#f0f6fc" }}>
-                          {under80.length} vendor
-                          {under80.length !== 1 ? "s" : ""}
+                          {under80.length} {under80.length !== 1 ? t("nav.vendor") : t("nav.vendor")}
                         </strong>{" "}
-                        ({topPct}% of vendors) account for ≈80% of total spend.
+                        ({topPct}% {t("analytics.percentOfTotal")}) account for ≈80% {t("analytics.totalSpendLabel")}.
                       </p>
                     );
                   })()}
@@ -998,12 +987,12 @@ export function Analytics() {
           {/* ── GROUPS ── */}
           {activeTab === "groups" && (
             <div className="content-block">
-              <h3 className="chart-title">Shared Finance Breakdown</h3>
+              <h3 className="chart-title">{t("analytics.groupsTitle")}</h3>
               <p className="chart-subtitle">
-                Contribution ratio per group member based on reviewed expenses.
+                {t("analytics.groupsDesc")}
               </p>
               {memberSpend.length === 0 ? (
-                <p className="muted">No member data available.</p>
+                <p className="muted">{t("analytics.noMemberData")}</p>
               ) : (
                 <>
                   <ResponsiveContainer width="100%" height={260}>
@@ -1033,14 +1022,14 @@ export function Analytics() {
                         itemStyle={{ color: "#8b949e" }}
                         formatter={(value: unknown) => [
                           `$${Number(value).toFixed(2)}`,
-                          "Total Spend",
+                          t("analytics.totalSpendLabel"),
                         ]}
                       />
                       <Bar
                         dataKey="total"
                         fill="#818cf8"
                         radius={[4, 4, 0, 0]}
-                        name="Total Spend"
+                        name={t("analytics.totalSpendLabel")}
                       />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1050,7 +1039,7 @@ export function Analytics() {
                         <span className="member-row__name">{m.name}</span>
                         <div className="member-row__stats">
                           <span className="small-text muted">
-                            {Math.round((m.total / totalSpend) * 100)}% of total
+                            {Math.round((m.total / totalSpend) * 100)}% {t("analytics.percentOfTotal")}
                           </span>
                           <strong>${m.total.toFixed(2)}</strong>
                         </div>
@@ -1065,15 +1054,14 @@ export function Analytics() {
           {/* ── EXPORT ── */}
           {activeTab === "export" && (
             <div className="content-block">
-              <h3 className="chart-title">Analytical Export</h3>
+              <h3 className="chart-title">{t("analytics.exportTitle")}</h3>
               <p className="chart-subtitle">
-                Download reviewed expense data as flat CSV or structured JSON,
-                optimized for external statistical tools.
+                {t("analytics.exportDesc")}
               </p>
               <div className="export-actions">
                 <button type="button" className="button" onClick={exportCSV}>
                   <Download size={15} />
-                  Download CSV ({allItems.length} items)
+                  {t("analytics.downloadCSV", { count: allItems.length })}
                 </button>
                 <button
                   type="button"
@@ -1081,18 +1069,15 @@ export function Analytics() {
                   onClick={exportJSON}
                 >
                   <Download size={15} />
-                  Download JSON ({transactions.length} transactions)
+                  {t("analytics.downloadJSON", { count: transactions.length })}
                 </button>
               </div>
               <div className="export-info">
                 <p className="small-text muted">
-                  <strong>CSV:</strong> transaction_id, date, vendor, category,
-                  item_name, quantity, unit_price, item_total, currency — one row per
-                  item.
+                  <strong>CSV:</strong> {t("analytics.csvDesc")}
                 </p>
                 <p className="small-text muted">
-                  <strong>JSON:</strong> Nested structure with transaction header and
-                  items array, ready for R, Python, or any statistical environment.
+                  <strong>JSON:</strong> {t("analytics.jsonDesc")}
                 </p>
               </div>
             </div>

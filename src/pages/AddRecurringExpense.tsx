@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ArrowLeft, RefreshCw, Info } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
@@ -12,58 +13,26 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import type { Group, RecurringExpenseType, RecurringFrequency } from "../types";
 
 const FIXED_CATEGORIES = [
-  "Comida",
-  "Limpieza",
-  "Salud",
-  "Entretenimiento",
-  "Hogar",
-  "Transporte",
-  "Vestimenta",
-  "Restaurante",
-  "Cuidado Personal",
-  "Mascotas",
-  "Servicios",
-  "Educación",
-  "Tecnología",
-  "Otro",
+  { value: "Comida", i18nKey: "categories.comida" },
+  { value: "Limpieza", i18nKey: "categories.limpieza" },
+  { value: "Salud", i18nKey: "categories.salud" },
+  { value: "Entretenimiento", i18nKey: "categories.entretenimiento" },
+  { value: "Hogar", i18nKey: "categories.hogar" },
+  { value: "Transporte", i18nKey: "categories.transporte" },
+  { value: "Vestimenta", i18nKey: "categories.vestimenta" },
+  { value: "Restaurante", i18nKey: "categories.restaurante" },
+  { value: "Cuidado Personal", i18nKey: "categories.cuidadoPersonal" },
+  { value: "Mascotas", i18nKey: "categories.mascotas" },
+  { value: "Servicios", i18nKey: "categories.servicios" },
+  { value: "Educación", i18nKey: "categories.educacion" },
+  { value: "Tecnología", i18nKey: "categories.tecnologia" },
+  { value: "Otro", i18nKey: "categories.otro" },
 ];
 
-const FREQUENCIES: { value: RecurringFrequency; label: string }[] = [
-  { value: "weekly", label: "Semanal" },
-  { value: "biweekly", label: "Quincenal" },
-  { value: "monthly", label: "Mensual" },
-  { value: "bimonthly", label: "Bimestral" },
-  { value: "quarterly", label: "Trimestral" },
-  { value: "every4months", label: "Cada 4 meses" },
-  { value: "every6months", label: "Semestral" },
-  { value: "annual", label: "Anual" },
+const FREQUENCY_VALUES: RecurringFrequency[] = [
+  "weekly", "biweekly", "monthly", "bimonthly", "quarterly", "every4months", "every6months", "annual",
 ];
 
-const TYPE_OPTIONS: {
-  value: RecurringExpenseType;
-  emoji: string;
-  label: string;
-  desc: string;
-}[] = [
-  {
-    value: "subscription",
-    emoji: "♻️",
-    label: "Suscripción",
-    desc: "Monto fijo periódico",
-  },
-  {
-    value: "installment",
-    emoji: "💳",
-    label: "Cuotas",
-    desc: "Compra en financiación",
-  },
-  {
-    value: "periodic_bill",
-    emoji: "⚡",
-    label: "Gasto Fijo",
-    desc: "Servicios periódicos",
-  },
-];
 
 const ERR: React.CSSProperties = {
   color: "rgba(248,113,113,0.9)",
@@ -78,6 +47,18 @@ const INPUT_ERR: React.CSSProperties = {
 export function AddRecurringExpense() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
+
+  const FREQUENCIES: { value: RecurringFrequency; label: string }[] = FREQUENCY_VALUES.map((v) => ({
+    value: v,
+    label: t(`frequencies.${v}`),
+  }));
+
+  const TYPE_OPTIONS: { value: RecurringExpenseType; emoji: string; label: string; desc: string }[] = [
+    { value: "subscription", emoji: "♻️", label: t("recurring.typeSubscription"), desc: t("recurring.typeSubscriptionDesc") },
+    { value: "installment", emoji: "💳", label: t("recurring.typeInstallment"), desc: t("recurring.typeInstallmentDesc") },
+    { value: "periodic_bill", emoji: "⚡", label: t("recurring.typePeriodicBill"), desc: t("recurring.typePeriodicBillDesc") },
+  ];
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupId, setGroupId] = useState("");
@@ -236,12 +217,12 @@ export function AddRecurringExpense() {
           }}
         >
           <ArrowLeft size={14} />
-          Volver
+          {t("recurring.back")}
         </button>
-        <p className="page__eyebrow">NUEVO RECURRENTE</p>
-        <h1>Agregar gasto recurrente</h1>
+        <p className="page__eyebrow">{t("recurring.newRecurringEyebrow")}</p>
+        <h1>{t("recurring.addTitle")}</h1>
         <p className="page__desc">
-          Suscripciones, cuotas en financiación o gastos periódicos fijos
+          {t("recurring.addSubtitle")}
         </p>
       </div>
 
@@ -259,7 +240,7 @@ export function AddRecurringExpense() {
                 letterSpacing: "0.2px",
               }}
             >
-              Tipo de gasto
+              {t("recurring.expenseType")}
             </label>
             <div className="recurring-type-grid">
               {TYPE_OPTIONS.map((opt) => (
@@ -312,7 +293,7 @@ export function AddRecurringExpense() {
           {/* Group — only shown if user has multiple groups */}
           {groups.length > 1 && (
             <label>
-              Grupo
+              {t("recurring.group")}
               <select
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
@@ -329,7 +310,7 @@ export function AddRecurringExpense() {
           {/* Name + Vendor */}
           <div style={twoColStyle}>
             <label>
-              Nombre *
+              {t("recurring.nameLabel")} *
               <input
                 type="text"
                 value={name}
@@ -338,11 +319,11 @@ export function AddRecurringExpense() {
                 style={showErrors && !name.trim() ? INPUT_ERR : {}}
               />
               {showErrors && !name.trim() && (
-                <span style={ERR}>Campo requerido</span>
+                <span style={ERR}>{t("common.required")}</span>
               )}
             </label>
             <label>
-              Proveedor / empresa
+              {t("recurring.vendorLabel")}
               <input
                 type="text"
                 value={vendorName}
@@ -355,21 +336,21 @@ export function AddRecurringExpense() {
           {/* Category + Currency */}
           <div style={twoColStyle}>
             <label>
-              Categoría
+              {t("recurring.category")}
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
               >
                 {FIXED_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                  <option key={c.value} value={c.value}>
+                    {t(c.i18nKey)}
                   </option>
                 ))}
               </select>
             </label>
             {category === "Otro" && (
               <label style={{ gridColumn: "1 / -1" }}>
-                Nombre de categoría
+                {t("recurring.customCategoryLabel")}
                 <input
                   type="text"
                   placeholder="Ej: Médico, Deporte, Mascotas…"
@@ -380,14 +361,14 @@ export function AddRecurringExpense() {
               </label>
             )}
             <label>
-              Moneda
+              {t("entry.currency")}
               <select
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
               >
-                <option value="UY$">UY$ (Pesos)</option>
-                <option value="US$">US$ (Dólares)</option>
-                <option value="EUR">EUR (Euros)</option>
+                <option value="UY$">{t("recurring.currencyPesos")}</option>
+                <option value="US$">{t("recurring.currencyDollars")}</option>
+                <option value="EUR">{t("recurring.currencyEuros")}</option>
               </select>
             </label>
           </div>
@@ -396,7 +377,7 @@ export function AddRecurringExpense() {
           {type !== "installment" ? (
             <div>
               <label>
-                Monto por período *
+                {t("recurring.amountPerPeriod")} *
                 <input
                   type="number"
                   min="0.01"
@@ -411,14 +392,13 @@ export function AddRecurringExpense() {
                   }
                 />
                 {showErrors && (!amount || Number(amount) <= 0) && (
-                  <span style={ERR}>Ingresá un monto válido</span>
+                  <span style={ERR}>{t("recurring.invalidAmount")}</span>
                 )}
               </label>
               {type === "periodic_bill" && (
                 <p className="recurring-retro-note" style={{ marginTop: 8 }}>
                   <Info size={12} style={{ flexShrink: 0 }} />
-                  Este monto se usará como referencia. Podés ajustar cada
-                  transacción si el valor varía.
+                  {t("recurring.periodicBillInfo")}
                 </p>
               )}
             </div>
@@ -426,7 +406,7 @@ export function AddRecurringExpense() {
             <>
               <div style={twoColStyle}>
                 <label>
-                  Monto total de compra *
+                  {t("recurring.totalPurchaseAmountLabel")} *
                   <input
                     type="number"
                     min="0.01"
@@ -445,11 +425,11 @@ export function AddRecurringExpense() {
                   {showErrors &&
                     (!totalPurchaseAmount ||
                       Number(totalPurchaseAmount) <= 0) && (
-                      <span style={ERR}>Campo requerido</span>
+                      <span style={ERR}>{t("common.required")}</span>
                     )}
                 </label>
                 <label>
-                  Número de cuotas *
+                  {t("recurring.numInstallmentsLabel")} *
                   <input
                     type="number"
                     min="2"
@@ -471,7 +451,7 @@ export function AddRecurringExpense() {
                   {showErrors &&
                     (!totalInstallments ||
                       Number(totalInstallments) < 2) && (
-                      <span style={ERR}>Mínimo 2 cuotas</span>
+                      <span style={ERR}>{t("recurring.minInstallments")}</span>
                     )}
                 </label>
               </div>
@@ -494,7 +474,7 @@ export function AddRecurringExpense() {
                       color: "var(--text-secondary)",
                     }}
                   >
-                    Monto por cuota
+                    {t("recurring.installmentAmountLabel")}
                   </span>
                   <span
                     style={{
@@ -535,7 +515,7 @@ export function AddRecurringExpense() {
                       cursor: "pointer",
                     }}
                   >
-                    Cuotas ya pagadas
+                    {t("recurring.alreadyPaidLabel")}
                   </label>
                   <input
                     id="paid-installments"
@@ -560,7 +540,7 @@ export function AddRecurringExpense() {
                   <span
                     style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}
                   >
-                    de {totalInstallments} cuotas
+                    {t("recurring.ofTotal", { total: totalInstallments })}
                   </span>
                   {paidInstallments > 0 && (
                     <span
@@ -575,7 +555,7 @@ export function AddRecurringExpense() {
                         flexShrink: 0,
                       }}
                     >
-                      Próxima: cuota {paidInstallments + 1}
+                      {t("recurring.nextInstallment", { num: paidInstallments + 1 })}
                     </span>
                   )}
                 </div>
@@ -586,7 +566,7 @@ export function AddRecurringExpense() {
           {/* Frequency + Start date */}
           <div style={twoColStyle}>
             <label>
-              Frecuencia
+              {t("recurring.frequency")}
               <select
                 value={frequency}
                 onChange={(e) =>
@@ -601,7 +581,7 @@ export function AddRecurringExpense() {
               </select>
             </label>
             <label>
-              Fecha de inicio
+              {t("recurring.startDate")}
               <input
                 type="date"
                 value={startDate}
@@ -613,46 +593,25 @@ export function AddRecurringExpense() {
           {showRetroNote && (
             <p className="recurring-retro-note">
               <Info size={12} style={{ flexShrink: 0 }} />
-              {paidInstallments > 0 && effectiveRetroCount === 0 ? (
-                <>
-                  Las{" "}
-                  <strong style={{ color: "var(--text-secondary)" }}>
-                    {retroCount} cuotas retroactivas
-                  </strong>{" "}
-                  quedan cubiertas por las cuotas ya pagadas. No se generarán
-                  transacciones retroactivas.
-                </>
-              ) : paidInstallments > 0 ? (
-                <>
-                  Se generarán{" "}
-                  <strong style={{ color: "var(--text-secondary)" }}>
-                    {effectiveRetroCount} transacciones retroactivas
-                  </strong>{" "}
-                  al guardar ({paidInstallments} cuotas ya pagadas se omitirán).
-                </>
-              ) : (
-                <>
-                  Se generarán{" "}
-                  <strong style={{ color: "var(--text-secondary)" }}>
-                    {retroCount} transacciones retroactivas
-                  </strong>{" "}
-                  al guardar.
-                </>
-              )}
+              {paidInstallments > 0 && effectiveRetroCount === 0
+                ? t("recurring.retroCoveredByPaid", { count: retroCount })
+                : paidInstallments > 0
+                  ? t("recurring.retroWithPaid", { effective: effectiveRetroCount, paid: paidInstallments })
+                  : t("recurring.retroNoteSimple", { count: retroCount })}
             </p>
           )}
 
           {/* Notes */}
           <label>
-            Notas{" "}
+            {t("recurring.notesLabel")}{" "}
             <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
-              (opcional)
+              {t("recurring.notesOptional")}
             </span>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              placeholder="Cualquier detalle adicional…"
+              placeholder={t("recurring.notesPlaceholder")}
             />
           </label>
 
@@ -679,7 +638,7 @@ export function AddRecurringExpense() {
               className="button button--secondary"
               onClick={() => navigate("/recurring")}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
             <button
               type="submit"
@@ -693,7 +652,7 @@ export function AddRecurringExpense() {
                   style={{ animation: "spin 1s linear infinite" }}
                 />
               )}
-              {loading ? "Guardando…" : "Guardar recurrente"}
+              {loading ? t("recurring.saving") : t("recurring.saveRecurring")}
             </button>
           </div>
         </form>
@@ -701,30 +660,25 @@ export function AddRecurringExpense() {
 
       <ConfirmModal
         open={showConfirmModal}
-        title="Confirmar gasto recurrente"
-        confirmLabel="Guardar"
+        title={t("recurring.confirmRecurringTitle")}
+        confirmLabel={t("common.save")}
         onCancel={() => setShowConfirmModal(false)}
         onConfirm={doSave}
         loading={loading}
       >
         {paidInstallments > 0 && (
           <p style={{ margin: "0 0 10px" }}>
-            Las cuotas <strong>1–{paidInstallments}</strong> no serán
-            registradas. La generación comenzará desde la{" "}
-            <strong>cuota {paidInstallments + 1}</strong>.
+            {t("recurring.confirmSkipInstallments", { paid: paidInstallments, next: paidInstallments + 1 })}
           </p>
         )}
         {effectiveRetroCount > 0 && (
           <p style={{ margin: 0 }}>
-            Se crearán{" "}
-            <strong>{effectiveRetroCount} transacciones retroactivas</strong>{" "}
-            desde {startDate}.
+            {t("recurring.confirmRetroCreation", { count: effectiveRetroCount, date: startDate })}
           </p>
         )}
         {effectiveRetroCount === 0 && paidInstallments > 0 && retroCount > 0 && (
           <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.83rem" }}>
-            No se generarán transacciones retroactivas (cubiertas por las cuotas
-            ya pagadas).
+            {t("recurring.confirmNoRetroactive")}
           </p>
         )}
       </ConfirmModal>

@@ -1,12 +1,24 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 
 const CATEGORIES = [
-  "Comida", "Limpieza", "Salud", "Entretenimiento", "Hogar",
-  "Transporte", "Vestimenta", "Restaurante", "Cuidado Personal",
-  "Mascotas", "Servicios", "Educación", "Tecnología", "Otro",
+  { value: "Comida", i18nKey: "categories.comida" },
+  { value: "Limpieza", i18nKey: "categories.limpieza" },
+  { value: "Salud", i18nKey: "categories.salud" },
+  { value: "Entretenimiento", i18nKey: "categories.entretenimiento" },
+  { value: "Hogar", i18nKey: "categories.hogar" },
+  { value: "Transporte", i18nKey: "categories.transporte" },
+  { value: "Vestimenta", i18nKey: "categories.vestimenta" },
+  { value: "Restaurante", i18nKey: "categories.restaurante" },
+  { value: "Cuidado Personal", i18nKey: "categories.cuidadoPersonal" },
+  { value: "Mascotas", i18nKey: "categories.mascotas" },
+  { value: "Servicios", i18nKey: "categories.servicios" },
+  { value: "Educación", i18nKey: "categories.educacion" },
+  { value: "Tecnología", i18nKey: "categories.tecnologia" },
+  { value: "Otro", i18nKey: "categories.otro" },
 ];
 
 type FormState = {
@@ -23,6 +35,7 @@ export function ReviewItemEdit() {
     itemId: string;
   }>();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const isNew = itemId === "new";
 
   const [form, setForm] = useState<FormState>({
@@ -135,11 +148,11 @@ export function ReviewItemEdit() {
           onClick={() => navigate("/review")}
           style={{ marginBottom: 24 }}
         >
-          ← Back to Review Queue
+          ← {t("reviewEdit.back")}
         </button>
-        <p className="eyebrow">{isNew ? "New item" : "Edit item"}</p>
+        <p className="eyebrow">{isNew ? t("reviewEdit.newItem") : t("reviewEdit.editItem")}</p>
         <h1>
-          {transactionQuery.data?.vendor_or_source ?? "Transaction"}
+          {transactionQuery.data?.vendor_or_source ?? t("reviewEdit.defaultTransaction")}
         </h1>
         {transactionQuery.data?.date && (
           <p>{transactionQuery.data.date}</p>
@@ -148,12 +161,12 @@ export function ReviewItemEdit() {
 
       {isLoading ? (
         <div className="content-block">
-          <p>Loading item…</p>
+          <p>{t("reviewEdit.loadingItem")}</p>
         </div>
       ) : itemQuery.isError ? (
         <div className="content-block">
           <div className="alert">
-            Failed to load item: {String(itemQuery.error)}
+            {t("reviewEdit.loadItemError")} {String(itemQuery.error)}
           </div>
         </div>
       ) : (
@@ -162,33 +175,33 @@ export function ReviewItemEdit() {
 
           <div className="form-grid">
             <div>
-              <label htmlFor="item-name">Product name</label>
+              <label htmlFor="item-name">{t("reviewEdit.productName")}</label>
               <input
                 id="item-name"
                 value={form.name}
                 onChange={(e) => field("name", e.target.value)}
-                placeholder="e.g. Leche entera"
+                placeholder={t("reviewEdit.productNamePlaceholder")}
                 autoComplete="off"
               />
             </div>
 
             <div>
-              <label htmlFor="item-category">Category</label>
+              <label htmlFor="item-category">{t("reviewEdit.category")}</label>
               <select
                 id="item-category"
                 value={form.category}
                 onChange={(e) => field("category", e.target.value)}
               >
                 {CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
+                  <option key={cat.value} value={cat.value}>
+                    {t(cat.i18nKey)}
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label htmlFor="item-qty">Quantity</label>
+              <label htmlFor="item-qty">{t("reviewEdit.quantity")}</label>
               <input
                 id="item-qty"
                 type="number"
@@ -200,7 +213,7 @@ export function ReviewItemEdit() {
             </div>
 
             <div>
-              <label htmlFor="item-price">Unit price</label>
+              <label htmlFor="item-price">{t("reviewEdit.unitPrice")}</label>
               <input
                 id="item-price"
                 type="number"
@@ -213,7 +226,7 @@ export function ReviewItemEdit() {
 
             <div>
               <label htmlFor="item-total">
-                Item total
+                {t("reviewEdit.itemTotal")}
                 {hasMismatch && (
                   <span
                     style={{
@@ -224,7 +237,7 @@ export function ReviewItemEdit() {
                       fontSize: "0.8rem",
                     }}
                   >
-                    calculated: {calculatedTotal.toFixed(2)}
+                    {t("reviewEdit.calculated")} {calculatedTotal.toFixed(2)}
                   </span>
                 )}
               </label>
@@ -247,7 +260,7 @@ export function ReviewItemEdit() {
               className="button button--secondary"
               onClick={() => navigate("/review")}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               type="button"
@@ -255,7 +268,7 @@ export function ReviewItemEdit() {
               onClick={handleSave}
               disabled={saving || !form.name.trim()}
             >
-              {saving ? "Saving…" : "Save item"}
+              {saving ? t("reviewEdit.saving") : t("reviewEdit.saveItem")}
             </button>
           </div>
         </div>

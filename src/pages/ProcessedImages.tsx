@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import type { Receipt } from "../types";
 
 export function ProcessedImages() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -29,7 +31,7 @@ export function ProcessedImages() {
   }, [user]);
 
   async function handleProcessNow(receiptId: string) {
-    setMessage("Processing receipt now...");
+    setMessage(t("processedImages.processingNow"));
     const { error } = await supabase.functions.invoke("process-receipts", {
       body: JSON.stringify({ receipt_id: receiptId }),
     });
@@ -39,24 +41,24 @@ export function ProcessedImages() {
       return;
     }
 
-    setMessage("Process request sent. Refresh after the function completes.");
+    setMessage(t("processedImages.processRequestSent"));
   }
 
   return (
     <main className="page">
       <div className="page__header">
         <div>
-          <p className="eyebrow">Uploaded receipts</p>
-          <h1>Pending and processed receipts</h1>
-          <p>Review uploads and manually trigger AI processing if needed.</p>
+          <p className="eyebrow">{t("processedImages.eyebrow")}</p>
+          <h1>{t("processedImages.title")}</h1>
+          <p>{t("processedImages.subtitle")}</p>
         </div>
       </div>
 
       <div className="content-block">
         {message ? <div className="alert">{message}</div> : null}
-        {loading && <p>Loading receipts…</p>}
+        {loading && <p>{t("processedImages.loading")}</p>}
         {!loading && !receipts.length && (
-          <p>No uploaded receipts available yet.</p>
+          <p>{t("processedImages.empty")}</p>
         )}
 
         <div className="ticket-list">
@@ -72,10 +74,10 @@ export function ProcessedImages() {
                   className="button button--small"
                   onClick={() => handleProcessNow(receipt.id)}
                 >
-                  Process now
+                  {t("processedImages.processNow")}
                 </button>
               </div>
-              <p className="small-text">Receipt path: {receipt.image_url}</p>
+              <p className="small-text">{t("processedImages.receiptPath", { path: receipt.image_url })}</p>
             </article>
           ))}
         </div>

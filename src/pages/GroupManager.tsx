@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 import type { Group } from "../types";
 
 export function GroupManager() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [groups, setGroups] = useState<Group[]>([]);
   const [name, setName] = useState("");
   const [status, setStatus] = useState<string | null>(null);
@@ -72,7 +74,7 @@ export function GroupManager() {
       { id: groupId, name: name.trim(), is_personal: false, created_at: new Date().toISOString() },
     ]);
     setName("");
-    setStatus("Group created successfully.");
+    setStatus(t("groups.createSuccess"));
     setLoading(false);
   }
 
@@ -106,7 +108,7 @@ export function GroupManager() {
       return;
     }
 
-    setStatus("Invitation sent successfully!");
+    setStatus(t("groups.inviteSuccess"));
     setInviteEmail("");
     setSelectedGroupId(null);
     setInviteLoading(false);
@@ -116,20 +118,17 @@ export function GroupManager() {
     <main className="page">
       <div className="page__header">
         <div>
-          <p className="eyebrow">Groups</p>
-          <h1>Manage shared finance groups</h1>
-          <p>
-            Create a group for family or company expense tracking and manage
-            access together.
-          </p>
+          <p className="eyebrow">{t("groups.eyebrow")}</p>
+          <h1>{t("groups.title")}</h1>
+          <p>{t("groups.manageFamilyDesc")}</p>
         </div>
       </div>
 
       <div className="content-block">
-        <h2>Create a group</h2>
+        <h2>{t("groups.createGroup")}</h2>
         <form className="form-grid" onSubmit={handleSubmit}>
           <label>
-            Group name
+            {t("groups.groupName")}
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -137,7 +136,7 @@ export function GroupManager() {
             />
           </label>
           <button type="submit" className="button" disabled={loading}>
-            {loading ? "Creating…" : "Create group"}
+            {loading ? t("groups.creating") : t("groups.createBtn")}
           </button>
         </form>
 
@@ -145,7 +144,7 @@ export function GroupManager() {
       </div>
 
       <div className="content-block" style={{ marginTop: "1rem" }}>
-        <h2>Your groups</h2>
+        <h2>{t("groups.yourGroups")}</h2>
         <div className="table-wrapper">
           {groups.length ? (
             groups.map((group) => (
@@ -157,7 +156,7 @@ export function GroupManager() {
                   <div className="ticket-card__body">
                     <form className="form-grid" onSubmit={handleInvite}>
                       <label>
-                        Invite by email
+                        {t("groups.inviteByEmail")}
                         <input
                           type="email"
                           value={inviteEmail}
@@ -173,7 +172,7 @@ export function GroupManager() {
                         className="button"
                         disabled={inviteLoading}
                       >
-                        {inviteLoading ? "Sending…" : "Send Invite"}
+                        {inviteLoading ? t("groups.sending") : t("groups.sendInvite")}
                       </button>
                       <button
                         type="button"
@@ -181,7 +180,7 @@ export function GroupManager() {
                         onClick={() => setSelectedGroupId(null)}
                         disabled={inviteLoading}
                       >
-                        Cancel
+                        {t("common.cancel")}
                       </button>
                     </form>
                   </div>
@@ -193,15 +192,13 @@ export function GroupManager() {
                     style={{ marginTop: 16 }}
                     onClick={() => setSelectedGroupId(group.id)}
                   >
-                    Invite Member
+                    {t("groups.inviteMember")}
                   </button>
                 )}
               </article>
             ))
           ) : (
-            <p>
-              No groups yet. Create one to begin tracking expenses and receipts.
-            </p>
+            <p>{t("groups.noGroups")}</p>
           )}
         </div>
       </div>

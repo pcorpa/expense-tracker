@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { Search, ShoppingCart, Check, ChevronDown, ChevronUp, Info } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import type { Transaction, Product } from "../types";
@@ -11,6 +12,12 @@ const CATEGORY_COLORS: Record<ShoppingCategory, string> = {
   Comida: "#3b82f6",
   Limpieza: "#34d399",
   "Cuidado Personal": "#e879f9",
+};
+
+const CATEGORY_I18N: Record<ShoppingCategory, string> = {
+  Comida: "categories.comida",
+  Limpieza: "categories.limpieza",
+  "Cuidado Personal": "categories.cuidadoPersonal",
 };
 
 type ShoppingItem = {
@@ -40,6 +47,7 @@ function ShoppingItemRow({
   item: ShoppingItem;
   historyMonths: number;
 }) {
+  const { t } = useTranslation();
   const catColor = CATEGORY_COLORS[item.category] ?? "#8b949e";
 
   const dots =
@@ -76,7 +84,7 @@ function ShoppingItemRow({
           className="sl-badge"
           style={{ background: hexToRgba(catColor, 0.14), color: catColor }}
         >
-          {item.category}
+          {t(CATEGORY_I18N[item.category] ?? "categories.otro")}
         </span>
         <span className="sl-item__meta">~{qtyDisplay}</span>
         {item.latestPrice !== null && (
@@ -104,6 +112,7 @@ function ShoppingItemRow({
 
 export function ShoppingList() {
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   const [historyMonths, setHistoryMonths] = useState<3 | 6 | 12>(6);
   const [activeCategories, setActiveCategories] = useState<Set<string>>(
@@ -401,8 +410,8 @@ export function ShoppingList() {
         {/* Header */}
         <div className="sl-header">
           <div>
-            <h1 className="sl-title">Lista de Compras</h1>
-            <p className="sl-subtitle">Basado en tus compras habituales</p>
+            <h1 className="sl-title">{t("shopping.title")}</h1>
+            <p className="sl-subtitle">{t("shopping.basedOnHabits")}</p>
           </div>
           <select
             className="sl-history-select"
@@ -411,19 +420,18 @@ export function ShoppingList() {
               setHistoryMonths(Number(e.target.value) as 3 | 6 | 12)
             }
           >
-            <option value={3}>3 meses</option>
-            <option value={6}>6 meses</option>
-            <option value={12}>12 meses</option>
+            <option value={3}>{t("shopping.months", { count: 3 })}</option>
+            <option value={6}>{t("shopping.months", { count: 6 })}</option>
+            <option value={12}>{t("shopping.months", { count: 12 })}</option>
           </select>
         </div>
 
-        {/* Fix 1: Info banner for users with limited history */}
         {!loading && dataMonths < 3 && shoppingItems.length > 0 && (
           <div className="sl-info-banner">
             <Info size={14} />
             {dataMonths <= 1
-              ? "Mostrando todos tus productos — la lista se refinará automáticamente al acumular más meses."
-              : `Historial de ${dataMonths} meses — el filtro de frecuencia se ajusta a tus datos disponibles.`}
+              ? t("shopping.coldStartAll")
+              : t("shopping.coldStartLimited", { count: dataMonths })}
           </div>
         )}
 
@@ -431,8 +439,7 @@ export function ShoppingList() {
         {!loading && filtered.length > 0 && (
           <div className="sl-progress">
             <span className="sl-progress__text">
-              <strong>{bought.length}</strong> de{" "}
-              <strong>{filtered.length}</strong> productos comprados este mes
+              {t("shopping.progressText", { bought: bought.length, total: filtered.length })}
             </span>
             <div className="sl-progress__bar">
               <div
@@ -464,7 +471,7 @@ export function ShoppingList() {
                 onClick={() => toggleCategory(cat)}
               >
                 <span className="sl-chip__dot" />
-                {cat}
+                {t(CATEGORY_I18N[cat])}
               </button>
             );
           })}
@@ -472,15 +479,14 @@ export function ShoppingList() {
 
         {/* Controls */}
         <div className="sl-controls">
-          {/* Fix 1: only show options that are achievable with current data */}
           <select
             className="sl-select"
             value={threshold}
             onChange={(e) => setThreshold(Number(e.target.value))}
           >
-            <option value={1}>Cualquier frecuencia</option>
-            {dataMonths >= 2 && <option value={2}>Mín. 2 meses</option>}
-            {dataMonths >= 3 && <option value={3}>Mín. 3 meses</option>}
+            <option value={1}>{t("shopping.anyFrequency")}</option>
+            {dataMonths >= 2 && <option value={2}>{t("shopping.minMonths", { count: 2 })}</option>}
+            {dataMonths >= 3 && <option value={3}>{t("shopping.minMonths", { count: 3 })}</option>}
           </select>
           <div className="sl-search-wrap">
             <span className="sl-search-icon">
@@ -488,7 +494,7 @@ export function ShoppingList() {
             </span>
             <input
               className="sl-search"
-              placeholder="Buscar producto..."
+              placeholder={t("shopping.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -514,7 +520,7 @@ export function ShoppingList() {
             {/* To buy section */}
             <div className="sl-section">
               <div className="sl-section-label">
-                Por comprar
+                {t("shopping.toBuy")}
                 <span className="sl-section-count">{toBuy.length}</span>
               </div>
               {toBuy.length === 0 ? (
@@ -529,13 +535,13 @@ export function ShoppingList() {
                   />
                   <h3>
                     {filtered.length === 0
-                      ? "Sin resultados"
-                      : "¡Todo al día!"}
+                      ? t("shopping.noResults")
+                      : t("shopping.allCurrent")}
                   </h3>
                   <p>
                     {filtered.length === 0
-                      ? "No hay productos habituales con los filtros actuales"
-                      : "Ya compraste todos tus productos habituales este mes"}
+                      ? t("shopping.noHabitual")
+                      : t("shopping.allBought")}
                   </p>
                 </div>
               ) : (
@@ -560,9 +566,7 @@ export function ShoppingList() {
                   onClick={() => setShowBought((v) => !v)}
                 >
                   <Check size={14} />
-                  {showBought ? "Ocultar" : "Mostrar"} {bought.length}{" "}
-                  producto{bought.length !== 1 ? "s" : ""} ya comprado
-                  {bought.length !== 1 ? "s" : ""}
+                  {t(showBought ? "shopping.hideBought" : "shopping.showBought", { count: bought.length })}
                   {showBought ? (
                     <ChevronUp size={14} />
                   ) : (
