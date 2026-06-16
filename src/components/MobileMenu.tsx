@@ -50,9 +50,24 @@ export function MobileMenu({
     { to: "/recurring", label: t("nav.recurring"), icon: Repeat },
     { to: "/shopping-list", label: t("nav.shoppingList"), icon: ShoppingCart },
     { to: "/analytics", label: t("nav.analytics"), icon: BarChart2 },
-    { to: "/product-audit", label: t("nav.productAudit"), icon: ShieldCheck, badge: "audit" },
-    { to: "/vendor-audit", label: t("nav.vendorAudit"), icon: Store, badge: "vendor" },
-    { to: "/invitations", label: t("nav.invitations"), icon: Mail, badge: "invitations" },
+    {
+      to: "/product-audit",
+      label: t("nav.productAudit"),
+      icon: ShieldCheck,
+      badge: "audit",
+    },
+    {
+      to: "/vendor-audit",
+      label: t("nav.vendorAudit"),
+      icon: Store,
+      badge: "vendor",
+    },
+    {
+      to: "/invitations",
+      label: t("nav.invitations"),
+      icon: Mail,
+      badge: "invitations",
+    },
     { to: "/groups", label: t("nav.groups"), icon: Users },
     { to: "/profile", label: t("nav.profile"), icon: UserIcon },
   ];
@@ -63,9 +78,7 @@ export function MobileMenu({
 
   const avatarUrl = user?.user_metadata?.avatar_url;
   const displayName =
-    user?.user_metadata?.full_name ||
-    user?.user_metadata?.name ||
-    user?.email;
+    user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email;
 
   return (
     <div className="mobile-nav">
@@ -80,26 +93,30 @@ export function MobileMenu({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {invitationsCount > 0 && (
-            <span style={{
-              background: "#3b82f6",
-              color: "#fff",
-              borderRadius: 10,
-              padding: "2px 8px",
-              fontSize: "0.72rem",
-              fontWeight: 700,
-            }}>
+            <span
+              style={{
+                background: "#3b82f6",
+                color: "#fff",
+                borderRadius: 10,
+                padding: "2px 8px",
+                fontSize: "0.72rem",
+                fontWeight: 700,
+              }}
+            >
               {invitationsCount > 99 ? "99+" : invitationsCount}
             </span>
           )}
           {pendingCount > 0 && (
-            <span style={{
-              background: "#f59e0b",
-              color: "#000",
-              borderRadius: 10,
-              padding: "2px 8px",
-              fontSize: "0.72rem",
-              fontWeight: 700,
-            }}>
+            <span
+              style={{
+                background: "#f59e0b",
+                color: "#000",
+                borderRadius: 10,
+                padding: "2px 8px",
+                fontSize: "0.72rem",
+                fontWeight: 700,
+              }}
+            >
               {pendingCount > 99 ? "99+" : pendingCount}
             </span>
           )}
@@ -119,7 +136,7 @@ export function MobileMenu({
             style={{ padding: "5px 8px" }}
             title="Switch language"
           >
-            {i18n.language === "es" ? "EN" : "ES"}
+            {i18n.language === "es" ? "ES" : "EN"}
           </button>
           <button className="mobile-nav__burger" onClick={() => setOpen(true)}>
             <Menu size={28} />
@@ -141,27 +158,42 @@ export function MobileMenu({
               {links.map((item) => {
                 const Icon = item.icon;
                 const active = location.pathname === item.to;
-                const count = item.badge === "audit" ? pendingCount : item.badge === "invitations" ? invitationsCount : item.badge === "vendor" ? vendorCount : 0;
+                const count =
+                  item.badge === "audit"
+                    ? pendingCount
+                    : item.badge === "invitations"
+                      ? invitationsCount
+                      : item.badge === "vendor"
+                        ? vendorCount
+                        : 0;
                 return (
                   <Link
                     key={item.to}
                     to={item.to}
                     className={active ? "active" : ""}
                     onClick={() => setOpen(false)}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
                   >
-                    <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span
+                      style={{ display: "flex", alignItems: "center", gap: 12 }}
+                    >
                       <Icon size={24} /> <span>{item.label}</span>
                     </span>
                     {count > 0 && (
-                      <span style={{
-                        background: "#f59e0b",
-                        color: "#000",
-                        borderRadius: 10,
-                        padding: "1px 8px",
-                        fontSize: "0.72rem",
-                        fontWeight: 700,
-                      }}>
+                      <span
+                        style={{
+                          background: "#f59e0b",
+                          color: "#000",
+                          borderRadius: 10,
+                          padding: "1px 8px",
+                          fontSize: "0.72rem",
+                          fontWeight: 700,
+                        }}
+                      >
                         {count > 99 ? "99+" : count}
                       </span>
                     )}

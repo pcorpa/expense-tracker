@@ -142,7 +142,7 @@ export function NavBar() {
             onClick={toggleLanguage}
             title="Switch language"
           >
-            {i18n.language === "es" ? "EN" : "ES"}
+            {i18n.language === "es" ? "ES" : "EN"}
           </button>
         </div>
         <button type="button" onClick={signOut} className="secondary">
