@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
 import { runNormalizationPipeline } from "../lib/fuzzyMatch";
+import { ConfirmModal } from "../components/ConfirmModal";
 import type { MappingStatus, Product, ProductRawMapping } from "../types";
 
 const CATEGORIES = [
@@ -530,6 +531,8 @@ export function ProductAudit() {
   const [productEditName, setProductEditName] = useState("");
   const [productEditCategory, setProductEditCategory] = useState("");
 
+  const [pendingConfirm, setPendingConfirm] = useState<{ body: string; onConfirm: () => void } | null>(null);
+
   const getClusterEdit = useCallback(
     (key: string, defaultName: string, defaultCat: string) =>
       clusterEdits[key] ?? { canonicalName: defaultName, category: defaultCat },
@@ -781,15 +784,20 @@ export function ProductAudit() {
                                 />
                                 <div style={{ display: "flex", gap: 7, alignSelf: "flex-end" }}>
                                   <button
-                                    disabled={isPending || !overrideProduct}
+                                    disabled={isPending || !overrideEdit.trim()}
                                     onClick={() => {
-                                      if (!overrideProduct) return;
-                                      confirmMutation.mutate({ rawName: cluster.rawName, productId: overrideProduct.id, groupId: cluster.groupId });
+                                      approveMutation.mutate({
+                                        rawName: cluster.rawName,
+                                        canonicalName: overrideEdit,
+                                        category: overrideProduct?.category ?? cluster.category ?? "Otro",
+                                        groupId: cluster.groupId,
+                                        existingProductId: overrideProduct?.id ?? null,
+                                      });
                                       setOverridingClusters((prev) => { const s = new Set(prev); s.delete(cluster.key); return s; });
                                     }}
-                                    style={{ ...primaryBtn, opacity: !overrideProduct || isPending ? 0.5 : 1 }}
+                                    style={{ ...primaryBtn, background: overrideProduct ? "var(--color-accent)" : "#f59e0b", opacity: !overrideEdit.trim() || isPending ? 0.5 : 1 }}
                                   >
-                                    <CheckCircle2 size={13} /> {t("audit.confirmOverride")}
+                                    {overrideProduct ? <><ArrowRightLeft size={13} /> {t("audit.mapTo", { name: overrideProduct.name })}</> : <><Plus size={13} /> {t("audit.addToCatalog")}</>}
                                   </button>
                                   <button
                                     onClick={() => setOverridingClusters((prev) => { const s = new Set(prev); s.delete(cluster.key); return s; })}
@@ -974,10 +982,10 @@ export function ProductAudit() {
                                     <Pencil size={12} />
                                   </button>
                                   <button
-                                    onClick={() => {
-                                      if (confirm(t("audit.deleteProductConfirm", { name: product.name })))
-                                        deleteMutation.mutate(product.id);
-                                    }}
+                                    onClick={() => setPendingConfirm({
+                                      body: t("audit.deleteProductConfirm", { name: product.name }),
+                                      onConfirm: () => deleteMutation.mutate(product.id),
+                                    })}
                                     disabled={deleteMutation.isPending}
                                     style={{ ...ghostBtn, padding: "4px 8px", color: "var(--color-danger)", borderColor: "rgba(248,113,113,0.3)" }}
                                     title="Delete product"
@@ -1030,10 +1038,10 @@ export function ProductAudit() {
                         </span>
                         {isAdmin && (
                           <button
-                            onClick={() => {
-                              if (confirm(t("audit.removeMappingConfirm", { raw: mapping.raw_name, product: product?.name ?? "" })))
-                                deleteMappingMutation.mutate(mapping.id);
-                            }}
+                            onClick={() => setPendingConfirm({
+                              body: t("audit.removeMappingConfirm", { raw: mapping.raw_name, product: product?.name ?? "" }),
+                              onConfirm: () => deleteMappingMutation.mutate(mapping.id),
+                            })}
                             disabled={deleteMappingMutation.isPending}
                             style={{ ...ghostBtn, padding: "4px 8px", color: "var(--color-danger)", borderColor: "rgba(248,113,113,0.3)", flexShrink: 0 }}
                             title="Remove mapping"
@@ -1058,6 +1066,16 @@ export function ProductAudit() {
 
         </div>
       )}
+
+      <ConfirmModal
+        open={pendingConfirm !== null}
+        title={t("common.delete")}
+        confirmLabel={t("common.delete")}
+        onConfirm={() => { pendingConfirm?.onConfirm(); setPendingConfirm(null); }}
+        onCancel={() => setPendingConfirm(null)}
+      >
+        {pendingConfirm?.body}
+      </ConfirmModal>
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }

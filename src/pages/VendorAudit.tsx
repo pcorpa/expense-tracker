@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
 import { runVendorNormalizationPipeline } from "../lib/fuzzyMatchVendor";
+import { ConfirmModal } from "../components/ConfirmModal";
 import type { Vendor, VendorMappingStatus, VendorRawMapping } from "../types";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -507,6 +508,8 @@ export function VendorAudit() {
   const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
   const [vendorEditName, setVendorEditName] = useState("");
 
+  const [pendingConfirm, setPendingConfirm] = useState<{ body: string; onConfirm: () => void } | null>(null);
+
   // lightbox state
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [lightboxLoading, setLightboxLoading] = useState(false);
@@ -725,15 +728,19 @@ export function VendorAudit() {
                           />
                           <div style={{ display: "flex", gap: 7, alignSelf: "flex-end" }}>
                             <button
-                              disabled={isPending || !overrideVendor}
+                              disabled={isPending || !overrideEdit.trim()}
                               onClick={() => {
-                                if (!overrideVendor) return;
-                                confirmMutation.mutate({ rawName: cluster.rawName, vendorId: overrideVendor.id, groupId: cluster.groupId });
+                                approveMutation.mutate({
+                                  rawName: cluster.rawName,
+                                  canonicalName: overrideEdit,
+                                  groupId: cluster.groupId,
+                                  existingVendorId: overrideVendor?.id ?? null,
+                                });
                                 setOverridingClusters((prev) => { const s = new Set(prev); s.delete(cluster.key); return s; });
                               }}
-                              style={{ ...primaryBtn, opacity: !overrideVendor || isPending ? 0.5 : 1 }}
+                              style={{ ...primaryBtn, background: overrideVendor ? "var(--color-accent)" : "#f59e0b", opacity: !overrideEdit.trim() || isPending ? 0.5 : 1 }}
                             >
-                              <CheckCircle2 size={13} /> {t("audit.confirmOverride")}
+                              {overrideVendor ? <><ArrowRightLeft size={13} /> {t("audit.mapTo", { name: overrideVendor.canonical_name })}</> : <><Plus size={13} /> {t("audit.addToCatalog")}</>}
                             </button>
                             <button
                               onClick={() => setOverridingClusters((prev) => { const s = new Set(prev); s.delete(cluster.key); return s; })}
@@ -902,11 +909,10 @@ export function VendorAudit() {
                             <Pencil size={13} />
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm(t("audit.deleteVendorConfirm", { name: vendor.canonical_name }))) {
-                                deleteMutation.mutate(vendor.id);
-                              }
-                            }}
+                            onClick={() => setPendingConfirm({
+                              body: t("audit.deleteVendorConfirm", { name: vendor.canonical_name }),
+                              onConfirm: () => deleteMutation.mutate(vendor.id),
+                            })}
                             disabled={deleteMutation.isPending}
                             style={{ ...ghostBtn, padding: "5px 9px", color: "var(--color-danger)", borderColor: "rgba(248,113,113,0.3)" }}
                             title="Delete vendor"
@@ -949,11 +955,10 @@ export function VendorAudit() {
                   </span>
                   {isAdmin && (
                     <button
-                      onClick={() => {
-                        if (confirm(t("audit.removeMappingVendorConfirm", { raw: mapping.raw_name, vendor: vendor?.canonical_name ?? "" }))) {
-                          deleteMappingMutation.mutate(mapping.id);
-                        }
-                      }}
+                      onClick={() => setPendingConfirm({
+                        body: t("audit.removeMappingVendorConfirm", { raw: mapping.raw_name, vendor: vendor?.canonical_name ?? "" }),
+                        onConfirm: () => deleteMappingMutation.mutate(mapping.id),
+                      })}
                       disabled={deleteMappingMutation.isPending}
                       style={{ ...ghostBtn, padding: "4px 8px", color: "var(--color-danger)", borderColor: "rgba(248,113,113,0.3)", flexShrink: 0 }}
                       title="Remove mapping"
@@ -971,6 +976,16 @@ export function VendorAudit() {
           </div>{/* end RIGHT */}
         </div>
       )}{/* end !isLoading && !isMigrationNeeded */}
+
+      <ConfirmModal
+        open={pendingConfirm !== null}
+        title={t("common.delete")}
+        confirmLabel={t("common.delete")}
+        onConfirm={() => { pendingConfirm?.onConfirm(); setPendingConfirm(null); }}
+        onCancel={() => setPendingConfirm(null)}
+      >
+        {pendingConfirm?.body}
+      </ConfirmModal>
 
       {lightboxLoading && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>

@@ -42,9 +42,24 @@ export function NavBar() {
     { to: "/recurring", label: t("nav.recurring"), icon: Repeat },
     { to: "/shopping-list", label: t("nav.shoppingList"), icon: ShoppingCart },
     { to: "/analytics", label: t("nav.analytics"), icon: BarChart2 },
-    { to: "/product-audit", label: t("nav.productAudit"), icon: ShieldCheck, badge: "audit" },
-    { to: "/vendor-audit", label: t("nav.vendorAudit"), icon: Store, badge: "vendor" },
-    { to: "/invitations", label: t("nav.invitations"), icon: Mail, badge: "invitations" },
+    {
+      to: "/product-audit",
+      label: t("nav.productAudit"),
+      icon: ShieldCheck,
+      badge: "audit",
+    },
+    {
+      to: "/vendor-audit",
+      label: t("nav.vendorAudit"),
+      icon: Store,
+      badge: "vendor",
+    },
+    {
+      to: "/invitations",
+      label: t("nav.invitations"),
+      icon: Mail,
+      badge: "invitations",
+    },
     { to: "/groups", label: t("nav.groups"), icon: Users },
     { to: "/profile", label: t("nav.profile"), icon: User },
   ];
@@ -67,24 +82,38 @@ export function NavBar() {
         {links.map((item) => {
           const Icon = item.icon;
           const active = location.pathname === item.to;
-          const count = item.badge === "audit" ? pendingCount : item.badge === "invitations" ? invitationsCount : item.badge === "vendor" ? vendorCount : 0;
+          const count =
+            item.badge === "audit"
+              ? pendingCount
+              : item.badge === "invitations"
+                ? invitationsCount
+                : item.badge === "vendor"
+                  ? vendorCount
+                  : 0;
           return (
-            <Link key={item.to} to={item.to} className={active ? "active" : ""} style={{ position: "relative" }}>
+            <Link
+              key={item.to}
+              to={item.to}
+              className={active ? "active" : ""}
+              style={{ position: "relative" }}
+            >
               <Icon size={18} />
               {item.label}
               {count > 0 && (
-                <span style={{
-                  marginLeft: "auto",
-                  background: "#f59e0b",
-                  color: "#000",
-                  borderRadius: 10,
-                  padding: "1px 7px",
-                  fontSize: "0.7rem",
-                  fontWeight: 700,
-                  lineHeight: "1.4",
-                  minWidth: 18,
-                  textAlign: "center",
-                }}>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    background: "#f59e0b",
+                    color: "#000",
+                    borderRadius: 10,
+                    padding: "1px 7px",
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    lineHeight: "1.4",
+                    minWidth: 18,
+                    textAlign: "center",
+                  }}
+                >
                   {count > 99 ? "99+" : count}
                 </span>
               )}
@@ -100,7 +129,9 @@ export function NavBar() {
             type="button"
             className="nav-control-btn"
             onClick={toggleTheme}
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={
+              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+            }
           >
             {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             {theme === "dark" ? "Light" : "Dark"}
