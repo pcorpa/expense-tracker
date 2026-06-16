@@ -156,7 +156,7 @@ export function ShoppingList() {
             .gte("date", cutoffStr),
           supabase
             .from("products")
-            .select("id, name, category")
+            .select("id, name, category, created_at")
             .in("group_id", groupIds),
         ]).then(([{ data: txData }, { data: prodData }]) => {
           setLoading(false);
