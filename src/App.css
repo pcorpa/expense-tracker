@@ -762,7 +762,8 @@ textarea:focus {
 .ticket-card__header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 0;
 }
 
@@ -773,10 +774,10 @@ textarea:focus {
   flex-shrink: 0;
 }
 
-.ticket-card__header > div:first-child {
+.ticket-card__info {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .ticket-card__header strong {
@@ -932,6 +933,47 @@ textarea:focus {
 
 .tx-date-btn:hover { color: var(--text-primary); border-color: var(--color-accent); }
 .tx-date-btn--active { color: var(--text-primary); border-color: var(--color-accent); }
+
+.ticket-card--collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ticket-card--collapsible:hover {
+  border-color: var(--border-strong);
+}
+
+.ticket-card__title-area {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ticket-card__chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.tx-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 0.5px solid var(--border-color);
+}
+
+.tx-pagination__info {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  min-width: 8rem;
+  text-align: center;
+}
 
 /* --- DATE PICKER MODAL --- */
 .date-picker-overlay {
@@ -1274,7 +1316,8 @@ textarea:focus {
   .item-details-grid { grid-template-columns: 1fr 1fr; }
   .auth-card { padding: 28px 20px; }
   .product-row { grid-template-columns: 1fr 1fr; }
-  .ticket-card__header { flex-direction: column; gap: 12px; }
+  .ticket-card__header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .ticket-card__header-right { flex-wrap: wrap; width: 100%; }
   .ticket-card { padding: 16px 18px; }
 }
 

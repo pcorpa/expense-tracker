@@ -19,10 +19,25 @@ import {
   Search,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "../lib/supabase";
+import {
+  getVendorAuditTransactions,
+  updateTransactionsVendorStatus,
+  getReceiptSignedUrl,
+} from "../api/transactions";
+import {
+  getVendors,
+  getVendorMappings,
+  runVendorScan,
+  confirmVendorMatch,
+  approveVendorMapping,
+  renameVendor,
+  deleteVendor,
+  deleteVendorMapping,
+} from "../api/vendors";
+import { getGroupRoles } from "../api/groups";
 import { runVendorNormalizationPipeline } from "../lib/fuzzyMatchVendor";
 import { ConfirmModal } from "../components/ConfirmModal";
-import type { Vendor, VendorMappingStatus, VendorRawMapping } from "../types";
+import type { Vendor, VendorMappingStatus } from "../types";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -48,161 +63,6 @@ type Cluster = {
   canonicalName: string;
   similarity?: number;
 };
-
-// ─── data fetchers ────────────────────────────────────────────────────────────
-
-async function fetchAuditTransactions(): Promise<AuditTransaction[]> {
-  const { data, error } = await supabase
-    .from("transactions")
-    .select("id, vendor_or_source, vendor_mapping_status, group_id, date, total_amount, currency, receipts(image_url)")
-    .in("vendor_mapping_status", ["needs_vendor_review", "new_vendor_candidate"])
-    .not("vendor_or_source", "is", null)
-    .order("vendor_or_source");
-  if (error) throw Object.assign(new Error(error.message), { code: (error as any).code });
-  return (data ?? []).map((row: any) => ({
-    ...row,
-    suggested_vendor_id: null,
-    receipt_image_path: (row.receipts as any)?.image_url ?? null,
-    receipts: undefined,
-  }));
-}
-
-async function fetchAllVendors(): Promise<Vendor[]> {
-  const { data, error } = await supabase
-    .from("vendors")
-    .select("id, group_id, canonical_name, created_at")
-    .order("canonical_name");
-  if (error) return [];
-  return data as Vendor[];
-}
-
-async function fetchRawMappings(): Promise<VendorRawMapping[]> {
-  const { data, error } = await supabase
-    .from("vendor_raw_mappings")
-    .select("id, group_id, raw_name, vendor_id, created_at")
-    .order("raw_name");
-  if (error) return [];
-  return data as VendorRawMapping[];
-}
-
-async function fetchMyGroupRoles(): Promise<Record<string, "admin" | "member">> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return {};
-  const { data } = await supabase
-    .from("group_members")
-    .select("group_id, role")
-    .eq("user_id", user.id);
-  const map: Record<string, "admin" | "member"> = {};
-  for (const row of data ?? []) map[row.group_id] = row.role;
-  return map;
-}
-
-// ─── scan pipeline ────────────────────────────────────────────────────────────
-
-async function runScan(): Promise<{ scanned: number; autoMatched: number; needsReview: number; newCandidates: number }> {
-  const { data: rawTxs, error: txErr } = await supabase
-    .from("transactions")
-    .select("id, vendor_or_source, group_id")
-    .is("vendor_mapping_status", null)
-    .not("vendor_or_source", "is", null)
-    .neq("vendor_or_source", "Unknown");
-
-  if (txErr) throw txErr;
-  if (!rawTxs || rawTxs.length === 0) return { scanned: 0, autoMatched: 0, needsReview: 0, newCandidates: 0 };
-
-  const groupIds = [...new Set(rawTxs.map((t: any) => t.group_id as string))];
-
-  const [{ data: vendors, error: vendorsErr }, { data: rawMappings }] = await Promise.all([
-    supabase.from("vendors").select("id, group_id, canonical_name, created_at"),
-    supabase.from("vendor_raw_mappings").select("group_id, raw_name, vendor_id").in("group_id", groupIds),
-  ]);
-  if (vendorsErr) throw vendorsErr;
-
-  const allVendors = (vendors ?? []) as Vendor[];
-
-  // Build a lookup: "groupId|rawNameLower" → vendorId for confirmed mappings
-  const confirmedMap = new Map<string, string>();
-  for (const m of rawMappings ?? []) {
-    confirmedMap.set(`${m.group_id}|${m.raw_name.toLowerCase().trim()}`, m.vendor_id);
-  }
-
-  const autoMatchedByVendor = new Map<string, string[]>();
-  const reviewByVendor = new Map<string, string[]>();
-  const newCandidateIds: string[] = [];
-  const fuzzyTxs: typeof rawTxs = [];
-
-  // Step 1: check confirmed mappings first (exact, no fuzzy needed)
-  for (const tx of rawTxs) {
-    const key = `${tx.group_id}|${(tx.vendor_or_source ?? "").toLowerCase().trim()}`;
-    const knownVendorId = confirmedMap.get(key);
-    if (knownVendorId) {
-      const ids = autoMatchedByVendor.get(knownVendorId) ?? [];
-      ids.push(tx.id);
-      autoMatchedByVendor.set(knownVendorId, ids);
-    } else {
-      fuzzyTxs.push(tx);
-    }
-  }
-
-  // Step 2: fuzzy-match the remainder
-  const fuzzyResults = groupIds.flatMap((gid) => {
-    const groupTxs = fuzzyTxs.filter((t: any) => t.group_id === gid);
-    if (!groupTxs.length) return [];
-    const groupVendors = allVendors.filter((v) => v.group_id === gid);
-    return runVendorNormalizationPipeline(groupTxs, groupVendors);
-  });
-
-  for (const r of fuzzyResults) {
-    if (r.status === "auto_matched" && r.suggestedVendorId) {
-      const ids = autoMatchedByVendor.get(r.suggestedVendorId) ?? [];
-      ids.push(r.id);
-      autoMatchedByVendor.set(r.suggestedVendorId, ids);
-    } else if (r.status === "needs_vendor_review") {
-      const ids = reviewByVendor.get(r.suggestedVendorId ?? "__none__") ?? [];
-      ids.push(r.id);
-      reviewByVendor.set(r.suggestedVendorId ?? "__none__", ids);
-    } else {
-      newCandidateIds.push(r.id);
-    }
-  }
-
-  const updates: PromiseLike<unknown>[] = [];
-
-  for (const [vendorId, ids] of autoMatchedByVendor) {
-    updates.push(
-      supabase
-        .from("transactions")
-        .update({ vendor_id: vendorId, vendor_mapping_status: "auto_matched" })
-        .in("id", ids),
-    );
-  }
-  for (const ids of reviewByVendor.values()) {
-    updates.push(
-      supabase
-        .from("transactions")
-        .update({ vendor_mapping_status: "needs_vendor_review" })
-        .in("id", ids),
-    );
-  }
-  if (newCandidateIds.length > 0) {
-    updates.push(
-      supabase
-        .from("transactions")
-        .update({ vendor_mapping_status: "new_vendor_candidate" })
-        .in("id", newCandidateIds),
-    );
-  }
-
-  await Promise.all(updates);
-
-  const totalAutoMatched = [...autoMatchedByVendor.values()].reduce((s, ids) => s + ids.length, 0);
-  return {
-    scanned: rawTxs.length,
-    autoMatched: totalAutoMatched,
-    needsReview: [...reviewByVendor.values()].reduce((s, ids) => s + ids.length, 0),
-    newCandidates: newCandidateIds.length,
-  };
-}
 
 // ─── combobox component ────────────────────────────────────────────────────────
 
@@ -313,10 +173,10 @@ export function VendorAudit() {
   const { t } = useTranslation();
   const qc = useQueryClient();
 
-  const auditQuery = useQuery({ queryKey: ["vendor-audit-txs"], queryFn: fetchAuditTransactions, retry: false });
-  const vendorsQuery = useQuery({ queryKey: ["all-vendors"], queryFn: fetchAllVendors, retry: false });
-  const rawMappingsQuery = useQuery({ queryKey: ["vendor-raw-mappings"], queryFn: fetchRawMappings, retry: false });
-  const rolesQuery = useQuery({ queryKey: ["my-group-roles"], queryFn: fetchMyGroupRoles });
+  const auditQuery = useQuery({ queryKey: ["vendor-audit-txs"], queryFn: getVendorAuditTransactions, retry: false });
+  const vendorsQuery = useQuery({ queryKey: ["all-vendors"], queryFn: getVendors, retry: false });
+  const rawMappingsQuery = useQuery({ queryKey: ["vendor-raw-mappings"], queryFn: getVendorMappings, retry: false });
+  const rolesQuery = useQuery({ queryKey: ["my-group-roles"], queryFn: getGroupRoles });
 
   const auditError = auditQuery.error as (Error & { code?: string }) | null;
   const isMigrationNeeded =
@@ -362,7 +222,7 @@ export function VendorAudit() {
   // ── scan ──────────────────────────────────────────────────────────────────
 
   const scanMutation = useMutation({
-    mutationFn: runScan,
+    mutationFn: runVendorScan,
     onSuccess: (stats) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
@@ -376,14 +236,8 @@ export function VendorAudit() {
   // ── confirm potential match ───────────────────────────────────────────────
 
   const confirmMutation = useMutation({
-    mutationFn: async ({ rawName, vendorId, groupId }: { rawName: string; vendorId: string; groupId: string }) => {
-      const { error } = await supabase.rpc("confirm_vendor_match", {
-        p_raw_name: rawName,
-        p_vendor_id: vendorId,
-        p_group_id: groupId,
-      });
-      if (error) throw error;
-    },
+    mutationFn: ({ rawName, vendorId, groupId }: { rawName: string; vendorId: string; groupId: string }) =>
+      confirmVendorMatch({ rawName, vendorId, groupId }),
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
@@ -394,13 +248,8 @@ export function VendorAudit() {
   });
 
   const treatAsNewMutation = useMutation({
-    mutationFn: async ({ ids }: { ids: string[]; rawName: string }) => {
-      const { error } = await supabase
-        .from("transactions")
-        .update({ vendor_mapping_status: "new_vendor_candidate" })
-        .in("id", ids);
-      if (error) throw error;
-    },
+    mutationFn: ({ ids }: { ids: string[]; rawName: string }) =>
+      updateTransactionsVendorStatus({ ids, status: "new_vendor_candidate" }),
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       toast.info(t("audit.movedToNew", { rawName }));
@@ -411,28 +260,15 @@ export function VendorAudit() {
   // ── approve / map new vendor ─────────────────────────────────────────────
 
   const approveMutation = useMutation({
-    mutationFn: async ({ rawName, canonicalName, groupId, existingVendorId }: {
+    mutationFn: ({ rawName, canonicalName, groupId, existingVendorId }: {
       rawName: string;
       canonicalName: string;
       groupId: string;
       existingVendorId: string | null;
-    }) => {
-      if (existingVendorId) {
-        const { error } = await supabase.rpc("confirm_vendor_match", {
-          p_raw_name: rawName,
-          p_vendor_id: existingVendorId,
-          p_group_id: groupId,
-        });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.rpc("approve_vendor_mapping", {
-          p_raw_name: rawName,
-          p_canonical_name: canonicalName.trim(),
-          p_group_id: groupId,
-        });
-        if (error) throw error;
-      }
-    },
+    }) =>
+      existingVendorId
+        ? confirmVendorMatch({ rawName, vendorId: existingVendorId, groupId })
+        : approveVendorMapping({ rawName, canonicalName, groupId }),
     onSuccess: (_, { canonicalName, existingVendorId }) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
@@ -446,13 +282,8 @@ export function VendorAudit() {
   // ── vendor catalog: rename ─────────────────────────────────────────────────
 
   const renameMutation = useMutation({
-    mutationFn: async ({ vendorId, name }: { vendorId: string; name: string }) => {
-      const { error } = await supabase.rpc("rename_vendor", {
-        p_vendor_id: vendorId,
-        p_canonical_name: name.trim(),
-      });
-      if (error) throw error;
-    },
+    mutationFn: ({ vendorId, name }: { vendorId: string; name: string }) =>
+      renameVendor(vendorId, name),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       setEditingVendorId(null);
@@ -464,10 +295,7 @@ export function VendorAudit() {
   // ── vendor catalog: delete ────────────────────────────────────────────────
 
   const deleteMutation = useMutation({
-    mutationFn: async (vendorId: string) => {
-      const { error } = await supabase.rpc("delete_vendor", { p_vendor_id: vendorId });
-      if (error) throw error;
-    },
+    mutationFn: (vendorId: string) => deleteVendor(vendorId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
@@ -481,10 +309,7 @@ export function VendorAudit() {
   // ── delete raw mapping ────────────────────────────────────────────────────
 
   const deleteMappingMutation = useMutation({
-    mutationFn: async (mappingId: string) => {
-      const { error } = await supabase.rpc("delete_vendor_raw_mapping", { p_mapping_id: mappingId });
-      if (error) throw error;
-    },
+    mutationFn: (mappingId: string) => deleteVendorMapping(mappingId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
       toast.success(t("audit.vendorMappingRemoved"));
@@ -517,14 +342,15 @@ export function VendorAudit() {
 
   const openReceipt = useCallback(async (imagePath: string) => {
     setLightboxLoading(true);
-    const { data, error } = await supabase.storage.from("receipts").createSignedUrl(imagePath, 120);
-    setLightboxLoading(false);
-    if (error || !data?.signedUrl) {
+    try {
+      const url = await getReceiptSignedUrl(imagePath);
+      setLightboxUrl(url);
+    } catch {
       toast.error(t("audit.receiptLoadError"));
-      return;
+    } finally {
+      setLightboxLoading(false);
     }
-    setLightboxUrl(data.signedUrl);
-  }, []);
+  }, [t]);
 
   const getEdit = useCallback(
     (key: string, defaultName: string) => clusterEdits[key] ?? defaultName,

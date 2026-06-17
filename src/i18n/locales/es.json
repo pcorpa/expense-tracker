@@ -117,7 +117,11 @@
     "done": "Listo",
     "deleteTitle": "¿Eliminar transacción?",
     "deleteBody": "Se eliminará permanentemente \"{{name}}\" y todos sus ítems. No se puede deshacer.",
-    "deleting": "Eliminando…"
+    "deleting": "Eliminando…",
+    "viewReceipt": "Ver imagen del recibo",
+    "prevPage": "Anterior",
+    "nextPage": "Siguiente",
+    "pageInfo": "Página {{current}} de {{total}}"
   },
   "review": {
     "eyebrow": "Revisión humana",

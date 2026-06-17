@@ -1,128 +1,117 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DayPicker } from "react-day-picker";
 import type { DateRange } from "react-day-picker";
 import { format } from "date-fns";
-import { Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, ImageIcon, Loader2, Pencil, Trash2, X } from "lucide-react";
 import "react-day-picker/style.css";
-import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { ConfirmModal } from "../components/ConfirmModal";
-import type { Group, Transaction } from "../types";
+import { getTransactions, deleteTransaction, getReceiptSignedUrl } from "../api/transactions";
+import { getGroups } from "../api/groups";
+import type { Transaction } from "../types";
+
+const PAGE_SIZE = 50;
 
 export function ExpenseList() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "expense" | "income">("all");
   const [groupFilter, setGroupFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"date" | "amount">("date");
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [page, setPage] = useState(0);
 
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxLoading, setLightboxLoading] = useState(false);
+
+  const groupsQuery = useQuery({
+    queryKey: ["my-groups"],
+    queryFn: getGroups,
+    enabled: Boolean(user),
+  });
+  const groups = groupsQuery.data ?? [];
+  const groupIds = groups.map((g) => g.id);
+
+  // Debounce search to avoid a query on every keystroke
   useEffect(() => {
-    if (!user) return;
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-    setLoading(true);
+  // Reset to page 0 whenever any filter changes
+  useEffect(() => {
+    setPage(0);
+  }, [typeFilter, groupFilter, debouncedSearch, dateRange, sortBy]);
 
-    supabase
-      .from("group_members")
-      .select("group_id, groups(id, name)")
-      .eq("user_id", user.id)
-      .then(({ data: memberships, error: membershipError }) => {
-        if (membershipError || !memberships || memberships.length === 0) {
-          setLoading(false);
-          setTransactions([]);
-          return;
-        }
+  const txQuery = useQuery({
+    queryKey: [
+      "transactions",
+      { groupIds, typeFilter, groupFilter, debouncedSearch, dateFrom: dateRange?.from, dateTo: dateRange?.to, sortBy, page },
+    ],
+    queryFn: () =>
+      getTransactions({
+        groupIds: groupFilter === "all" ? groupIds : [groupFilter],
+        type: typeFilter === "all" ? undefined : typeFilter,
+        vendorSearch: debouncedSearch.trim() || undefined,
+        dateFrom: dateRange?.from?.toISOString().split("T")[0],
+        dateTo: dateRange?.to?.toISOString().split("T")[0],
+        sortBy,
+        page,
+        pageSize: PAGE_SIZE,
+      }),
+    enabled: groupIds.length > 0,
+  });
 
-        const resolvedGroups = (memberships ?? [])
-          .map((m: any) => m.groups)
-          .filter(Boolean) as Group[];
-        setGroups(resolvedGroups);
+  const transactions: Transaction[] = txQuery.data?.data ?? [];
+  const totalCount: number = txQuery.data?.count ?? 0;
+  const loading = groupsQuery.isFetching || txQuery.isFetching;
+  const error = txQuery.error ? (txQuery.error as Error).message : null;
 
-        const groupIds = memberships.map((m: any) => m.group_id);
-
-        supabase
-          .from("transactions")
-          .select("*, transaction_items(*)")
-          .in("group_id", groupIds)
-          .order("date", { ascending: false })
-          .then(({ data, error }) => {
-            setLoading(false);
-            if (error) {
-              setError(error.message);
-              return;
-            }
-            setTransactions(data ?? []);
-          });
-      });
-  }, [user]);
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    const { error } = await supabase
-      .from("transactions")
-      .delete()
-      .eq("id", deleteTarget.id);
-    setDeleting(false);
-    if (!error) {
-      setTransactions((prev) => prev.filter((t) => t.id !== deleteTarget.id));
-      setDeleteTarget(null);
-    }
+  const toggleExpanded = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
   };
 
-  const filtered = useMemo(() => {
-    let result = transactions;
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteTransaction(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      setDeleteTarget(null);
+    },
+  });
 
-    if (typeFilter !== "all") {
-      result = result.filter((t) => t.type === typeFilter);
+  const openReceipt = useCallback(async (imagePath: string) => {
+    setLightboxLoading(true);
+    try {
+      const url = await getReceiptSignedUrl(imagePath);
+      setLightboxUrl(url);
+    } catch {
+      // silently ignore — lightbox simply won't open
+    } finally {
+      setLightboxLoading(false);
     }
-
-    if (groupFilter !== "all") {
-      result = result.filter((t) => t.group_id === groupFilter);
-    }
-
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      result = result.filter((t) =>
-        (t.vendor_or_source ?? "").toLowerCase().includes(q)
-      );
-    }
-
-    if (dateRange?.from) {
-      const from = dateRange.from.toISOString().split("T")[0];
-      result = result.filter((t) => t.date && t.date >= from);
-    }
-    if (dateRange?.to) {
-      const to = dateRange.to.toISOString().split("T")[0];
-      result = result.filter((t) => t.date && t.date <= to);
-    }
-
-    if (sortBy === "amount") {
-      result = [...result].sort(
-        (a, b) => (b.total_amount ?? 0) - (a.total_amount ?? 0)
-      );
-    }
-
-    return result;
-  }, [transactions, typeFilter, groupFilter, search, dateRange, sortBy]);
+  }, []);
 
   const dateLabel = dateRange?.from
     ? `${format(dateRange.from, "MMM d")}${dateRange.to ? ` – ${format(dateRange.to, "MMM d")}` : ""}`
     : t("transactions.dateRange");
 
   const hasDateFilter = !!dateRange?.from;
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   return (
     <main className="page">
@@ -189,106 +178,161 @@ export function ExpenseList() {
           </div>
         )}
 
-        {!loading && !filtered.length && (
+        {!loading && !transactions.length && (
           <p>{t("transactions.noMatch")}</p>
         )}
 
         <div className="ticket-list">
-          {filtered.map((transaction) => (
-            <article key={transaction.id} className="ticket-card">
-              <div className="ticket-card__header">
-                <div>
-                  <strong>
-                    {transaction.vendor_or_source ?? t("transactions.unknownSource")}
-                  </strong>
-                  <span>{transaction.date ?? t("transactions.noDate")}</span>
-                </div>
-                <div className="ticket-card__header-right">
-                  <span className={`tx-badge tx-badge--${transaction.type}`}>
-                    {transaction.type === "expense" ? t("transactions.expense") : t("transactions.income")}
-                  </span>
-                  <strong className={`tx-amount tx-amount--${transaction.type}`}>
-                    ${transaction.total_amount?.toFixed(2) ?? "0.00"}
-                  </strong>
-                  <button
-                    type="button"
-                    className="button button--secondary button--small"
-                    onClick={() =>
-                      navigate(`/review/${transaction.id}/edit`, {
-                        state: { from: "/transactions" },
-                      })
-                    }
-                    title={t("common.edit")}
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    className="button button--secondary button--small"
-                    style={{ color: "var(--color-danger, #e53e3e)" }}
-                    onClick={() =>
-                      setDeleteTarget({
-                        id: transaction.id,
-                        name: transaction.vendor_or_source ?? t("transactions.unknownSource"),
-                      })
-                    }
-                    title={t("common.delete")}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-              <p className="small-text">
-                {transaction.is_reviewed ? t("transactions.reviewed") : t("transactions.pendingReview")}
-              </p>
-              {transaction.transaction_items?.length ? (
-                <div className="ticket-card__products">
-                  {transaction.transaction_items.map((item) => (
+          {transactions.map((transaction) => {
+            const isExpanded = expandedIds.has(transaction.id);
+            const receiptPath = (transaction.receipts as any)?.image_url ?? null;
+            return (
+              <article
+                key={transaction.id}
+                className="ticket-card ticket-card--collapsible"
+                onClick={() => toggleExpanded(transaction.id)}
+              >
+                <div className="ticket-card__header">
+                  <div className="ticket-card__title-area">
+                    <span className="ticket-card__chevron">
+                      {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    </span>
+                    <div className="ticket-card__info">
+                      <strong>
+                        {transaction.vendor_or_source ?? t("transactions.unknownSource")}
+                      </strong>
+                      <span>{transaction.date ?? t("transactions.noDate")}</span>
+                    </div>
+                  </div>
+                  <div className="ticket-card__header-right">
+                    <span className={`tx-badge tx-badge--${transaction.type}`}>
+                      {transaction.type === "expense" ? t("transactions.expense") : t("transactions.income")}
+                    </span>
+                    <strong className={`tx-amount tx-amount--${transaction.type}`}>
+                      ${transaction.total_amount?.toFixed(2) ?? "0.00"}
+                    </strong>
+                    {receiptPath && (
+                      <button
+                        type="button"
+                        className="button button--secondary button--small"
+                        onClick={(e) => { e.stopPropagation(); openReceipt(receiptPath); }}
+                        title={t("transactions.viewReceipt")}
+                      >
+                        <ImageIcon size={13} />
+                      </button>
+                    )}
                     <button
-                      key={item.id}
                       type="button"
-                      className="item-row-btn"
-                      onClick={() =>
-                        navigate(`/review/${transaction.id}/items/${item.id}`, {
+                      className="button button--secondary button--small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/review/${transaction.id}/edit`, {
                           state: { from: "/transactions" },
-                        })
-                      }
+                        });
+                      }}
+                      title={t("common.edit")}
                     >
-                      <div className="item-row-btn__left">
-                        <span className="item-row-btn__name">
-                          {item.name || t("transactions.unnamedItem")}
-                        </span>
-                        {item.category && (
-                          <span className="item-row-btn__category">
-                            {item.category}
-                          </span>
-                        )}
-                      </div>
-                      <div className="item-row-btn__right">
-                        <span className="item-row-btn__math">
-                          {item.quantity ?? 1} × $
-                          {(item.unit_price ?? 0).toFixed(2)}
-                        </span>
-                        <strong className="item-row-btn__total">
-                          ${(item.item_total ?? 0).toFixed(2)}
-                        </strong>
-                        <span className="item-row-btn__chevron">›</span>
-                      </div>
+                      <Pencil size={13} />
                     </button>
-                  ))}
+                    <button
+                      type="button"
+                      className="button button--secondary button--small"
+                      style={{ color: "var(--color-danger, #e53e3e)" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTarget({
+                          id: transaction.id,
+                          name: transaction.vendor_or_source ?? t("transactions.unknownSource"),
+                        });
+                      }}
+                      title={t("common.delete")}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
-              ) : null}
-            </article>
-          ))}
+
+                {isExpanded && (
+                  <>
+                    <p className="small-text" style={{ marginTop: 10 }}>
+                      {transaction.is_reviewed ? t("transactions.reviewed") : t("transactions.pendingReview")}
+                    </p>
+                    {transaction.transaction_items?.length ? (
+                      <div className="ticket-card__products">
+                        {transaction.transaction_items.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="item-row-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/review/${transaction.id}/items/${item.id}`, {
+                                state: { from: "/transactions" },
+                              });
+                            }}
+                          >
+                            <div className="item-row-btn__left">
+                              <span className="item-row-btn__name">
+                                {item.name || t("transactions.unnamedItem")}
+                              </span>
+                              {item.category && (
+                                <span className="item-row-btn__category">
+                                  {item.category}
+                                </span>
+                              )}
+                            </div>
+                            <div className="item-row-btn__right">
+                              <span className="item-row-btn__math">
+                                {item.quantity ?? 1} × $
+                                {(item.unit_price ?? 0).toFixed(2)}
+                              </span>
+                              <strong className="item-row-btn__total">
+                                ${(item.item_total ?? 0).toFixed(2)}
+                              </strong>
+                              <span className="item-row-btn__chevron">›</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </article>
+            );
+          })}
         </div>
+
+        {totalPages > 1 && (
+          <div className="tx-pagination">
+            <button
+              type="button"
+              className="button button--secondary"
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              {t("transactions.prevPage")}
+            </button>
+            <span className="tx-pagination__info">
+              {t("transactions.pageInfo", { current: page + 1, total: totalPages })}
+            </span>
+            <button
+              type="button"
+              className="button button--secondary"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              {t("transactions.nextPage")}
+            </button>
+          </div>
+        )}
       </div>
 
       <ConfirmModal
         open={deleteTarget !== null}
         title={t("transactions.deleteTitle")}
         confirmLabel={t("common.delete")}
-        loading={deleting}
-        onConfirm={handleDelete}
+        loading={deleteMutation.isPending}
+        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         onCancel={() => setDeleteTarget(null)}
       >
         {t("transactions.deleteBody", { name: deleteTarget?.name ?? "" })}
@@ -328,6 +372,34 @@ export function ExpenseList() {
           </div>
         </div>
       )}
+
+      {lightboxLoading && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <Loader2 size={32} color="#fff" style={{ animation: "spin 1s linear infinite" }} />
+        </div>
+      )}
+
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 24 }}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff" }}
+          >
+            <X size={18} />
+          </button>
+          <img
+            src={lightboxUrl}
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: 8, objectFit: "contain", boxShadow: "0 16px 48px rgba(0,0,0,0.6)" }}
+            alt="Receipt"
+          />
+        </div>
+      )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </main>
   );
 }

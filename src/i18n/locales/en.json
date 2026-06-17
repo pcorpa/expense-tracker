@@ -117,7 +117,11 @@
     "done": "Done",
     "deleteTitle": "Delete transaction?",
     "deleteBody": "This will permanently delete \"{{name}}\" and all its items. This cannot be undone.",
-    "deleting": "Deleting…"
+    "deleting": "Deleting…",
+    "viewReceipt": "View receipt image",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "pageInfo": "Page {{current}} of {{total}}"
   },
   "review": {
     "eyebrow": "Human review",

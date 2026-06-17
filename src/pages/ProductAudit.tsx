@@ -18,10 +18,22 @@ import {
   Search,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "../lib/supabase";
+import {
+  getProductAuditItems,
+  getProducts,
+  getProductMappings,
+  runProductScan,
+  confirmProductMatch,
+  approveProductMapping,
+  renameProduct,
+  deleteProduct,
+  deleteProductMapping,
+  resetTransactionItemsToNewCandidate,
+} from "../api/products";
+import { getGroupRoles } from "../api/groups";
 import { runNormalizationPipeline } from "../lib/fuzzyMatch";
 import { ConfirmModal } from "../components/ConfirmModal";
-import type { MappingStatus, Product, ProductRawMapping } from "../types";
+import type { MappingStatus, Product } from "../types";
 
 const CATEGORIES = [
   "Comida",
@@ -81,153 +93,6 @@ type Cluster = {
   category: string;
   similarity?: number;
 };
-
-// ─── data fetchers ────────────────────────────────────────────────────────────
-
-async function fetchAuditItems(): Promise<AuditItem[]> {
-  const { data, error } = await supabase
-    .from("transaction_items")
-    .select("id, name, category, quantity, unit_price, item_total, mapping_status, suggested_product_id, transactions!inner(group_id)")
-    .in("mapping_status", ["needs_mapping_review", "new_product_candidate"])
-    .order("name");
-  if (error) throw Object.assign(new Error(error.message), { code: (error as any).code });
-  return data as unknown as AuditItem[];
-}
-
-async function fetchAllProducts(): Promise<Product[]> {
-  const { data, error } = await supabase
-    .from("products")
-    .select("id, name, category, group_id, created_at")
-    .order("name");
-  if (error) {
-    console.error("[ProductAudit] fetchAllProducts ERROR:", { message: error.message });
-    return [];
-  }
-  return data as Product[];
-}
-
-async function fetchRawMappings(): Promise<ProductRawMapping[]> {
-  const { data, error } = await supabase
-    .from("product_raw_mappings")
-    .select("id, group_id, raw_name, product_id, created_at")
-    .order("raw_name");
-  if (error) return [];
-  return data as ProductRawMapping[];
-}
-
-async function fetchMyGroupRoles(): Promise<Record<string, "admin" | "member">> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return {};
-  const { data } = await supabase
-    .from("group_members")
-    .select("group_id, role")
-    .eq("user_id", user.id);
-  const map: Record<string, "admin" | "member"> = {};
-  for (const row of data ?? []) map[row.group_id] = row.role;
-  return map;
-}
-
-// ─── scan pipeline ────────────────────────────────────────────────────────────
-
-async function runScan(): Promise<{ scanned: number; autoMatched: number; needsReview: number; newCandidates: number }> {
-  const { data: rawItemsRaw, error: itemsErr } = await supabase
-    .from("transaction_items")
-    .select("id, name, transactions!inner(group_id)")
-    .is("mapping_status", null)
-    .is("product_id", null)
-    .neq("name", "Unknown");
-
-  if (itemsErr) throw itemsErr;
-  if (!rawItemsRaw || rawItemsRaw.length === 0) return { scanned: 0, autoMatched: 0, needsReview: 0, newCandidates: 0 };
-
-  const rawItems = rawItemsRaw as unknown as Array<{ id: string; name: string; transactions: { group_id: string } }>;
-  const groupIds = [...new Set(rawItems.map((i) => i.transactions.group_id))];
-
-  const [{ data: products, error: productsErr }, { data: rawMappings }] = await Promise.all([
-    supabase.from("products").select("id, name, category, group_id, created_at"),
-    supabase.from("product_raw_mappings").select("group_id, raw_name, product_id").in("group_id", groupIds),
-  ]);
-
-  if (productsErr) throw productsErr;
-
-  // Build confirmed map: "groupId|rawNameLower" → productId
-  const confirmedMap = new Map<string, string>();
-  for (const m of rawMappings ?? []) {
-    confirmedMap.set(`${m.group_id}|${m.raw_name.toLowerCase().trim()}`, m.product_id);
-  }
-
-  const autoMatchedByProduct = new Map<string, string[]>();
-  const reviewByProduct = new Map<string, string[]>();
-  const newCandidateIds: string[] = [];
-  const fuzzyItems: Array<{ id: string; name: string }> = [];
-
-  // Step 1: exact confirmed matches
-  for (const item of rawItems) {
-    const key = `${item.transactions.group_id}|${item.name.toLowerCase().trim()}`;
-    const knownProductId = confirmedMap.get(key);
-    if (knownProductId) {
-      const ids = autoMatchedByProduct.get(knownProductId) ?? [];
-      ids.push(item.id);
-      autoMatchedByProduct.set(knownProductId, ids);
-    } else {
-      fuzzyItems.push({ id: item.id, name: item.name });
-    }
-  }
-
-  // Step 2: fuzzy-match the rest
-  const results = runNormalizationPipeline(fuzzyItems, (products ?? []) as Product[]);
-
-  for (const r of results) {
-    if (r.status === "auto_matched" && r.suggestedProductId) {
-      const ids = autoMatchedByProduct.get(r.suggestedProductId) ?? [];
-      ids.push(r.id);
-      autoMatchedByProduct.set(r.suggestedProductId, ids);
-    } else if (r.status === "needs_mapping_review" && r.suggestedProductId) {
-      const ids = reviewByProduct.get(r.suggestedProductId) ?? [];
-      ids.push(r.id);
-      reviewByProduct.set(r.suggestedProductId, ids);
-    } else {
-      newCandidateIds.push(r.id);
-    }
-  }
-
-  const updates: PromiseLike<unknown>[] = [];
-
-  for (const [productId, ids] of autoMatchedByProduct) {
-    updates.push(
-      supabase
-        .from("transaction_items")
-        .update({ product_id: productId, mapping_status: "auto_matched", suggested_product_id: null })
-        .in("id", ids),
-    );
-  }
-  for (const [productId, ids] of reviewByProduct) {
-    updates.push(
-      supabase
-        .from("transaction_items")
-        .update({ mapping_status: "needs_mapping_review", suggested_product_id: productId })
-        .in("id", ids),
-    );
-  }
-  if (newCandidateIds.length > 0) {
-    updates.push(
-      supabase
-        .from("transaction_items")
-        .update({ mapping_status: "new_product_candidate" })
-        .in("id", newCandidateIds),
-    );
-  }
-
-  await Promise.all(updates);
-
-  const totalAutoMatched = [...autoMatchedByProduct.values()].reduce((s, ids) => s + ids.length, 0);
-  return {
-    scanned: rawItems.length,
-    autoMatched: totalAutoMatched,
-    needsReview: [...reviewByProduct.values()].reduce((s, ids) => s + ids.length, 0),
-    newCandidates: newCandidateIds.length,
-  };
-}
 
 // ─── combobox component ────────────────────────────────────────────────────────
 
@@ -341,10 +206,10 @@ export function ProductAudit() {
   const qc = useQueryClient();
   const { t } = useTranslation();
 
-  const auditQuery = useQuery({ queryKey: ["audit-items"], queryFn: fetchAuditItems, retry: false });
-  const productsQuery = useQuery({ queryKey: ["all-products"], queryFn: fetchAllProducts, retry: false });
-  const rawMappingsQuery = useQuery({ queryKey: ["product-raw-mappings"], queryFn: fetchRawMappings, retry: false });
-  const rolesQuery = useQuery({ queryKey: ["my-group-roles"], queryFn: fetchMyGroupRoles });
+  const auditQuery = useQuery({ queryKey: ["audit-items"], queryFn: getProductAuditItems, retry: false });
+  const productsQuery = useQuery({ queryKey: ["all-products"], queryFn: getProducts, retry: false });
+  const rawMappingsQuery = useQuery({ queryKey: ["product-raw-mappings"], queryFn: getProductMappings, retry: false });
+  const rolesQuery = useQuery({ queryKey: ["my-group-roles"], queryFn: getGroupRoles });
 
   const auditError = auditQuery.error as (Error & { code?: string }) | null;
   const isMigrationNeeded =
@@ -368,7 +233,7 @@ export function ProductAudit() {
   // ── scan ──────────────────────────────────────────────────────────────────
 
   const scanMutation = useMutation({
-    mutationFn: runScan,
+    mutationFn: runProductScan,
     onSuccess: (stats) => {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       qc.invalidateQueries({ queryKey: ["all-products"] });
@@ -387,14 +252,8 @@ export function ProductAudit() {
   // ── confirm potential match ───────────────────────────────────────────────
 
   const confirmMutation = useMutation({
-    mutationFn: async ({ rawName, productId, groupId }: { rawName: string; productId: string; groupId: string }) => {
-      const { error } = await supabase.rpc("confirm_product_match", {
-        p_raw_name: rawName,
-        p_product_id: productId,
-        p_group_id: groupId,
-      });
-      if (error) throw error;
-    },
+    mutationFn: ({ rawName, productId, groupId }: { rawName: string; productId: string; groupId: string }) =>
+      confirmProductMatch({ rawName, productId, groupId }),
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       qc.invalidateQueries({ queryKey: ["product-raw-mappings"] });
@@ -407,13 +266,8 @@ export function ProductAudit() {
   // ── treat as new ─────────────────────────────────────────────────────────
 
   const treatAsNewMutation = useMutation({
-    mutationFn: async ({ ids }: { ids: string[]; rawName: string }) => {
-      const { error } = await supabase
-        .from("transaction_items")
-        .update({ mapping_status: "new_product_candidate", suggested_product_id: null })
-        .in("id", ids);
-      if (error) throw error;
-    },
+    mutationFn: ({ ids }: { ids: string[]; rawName: string }) =>
+      resetTransactionItemsToNewCandidate(ids),
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       toast.info(`"${rawName}" moved to New Candidates.`);
@@ -424,36 +278,16 @@ export function ProductAudit() {
   // ── approve / map to existing product ────────────────────────────────────
 
   const approveMutation = useMutation({
-    mutationFn: async ({
-      rawName,
-      canonicalName,
-      category,
-      groupId,
-      existingProductId,
-    }: {
+    mutationFn: ({ rawName, canonicalName, category, groupId, existingProductId }: {
       rawName: string;
       canonicalName: string;
       category: string;
       groupId: string;
       existingProductId: string | null;
-    }) => {
-      if (existingProductId) {
-        const { error } = await supabase.rpc("confirm_product_match", {
-          p_raw_name: rawName,
-          p_product_id: existingProductId,
-          p_group_id: groupId,
-        });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.rpc("approve_product_mapping", {
-          p_raw_name: rawName,
-          p_canonical_name: canonicalName.trim(),
-          p_category: category,
-          p_group_id: groupId,
-        });
-        if (error) throw error;
-      }
-    },
+    }) =>
+      existingProductId
+        ? confirmProductMatch({ rawName, productId: existingProductId, groupId })
+        : approveProductMapping({ rawName, canonicalName, category, groupId }),
     onSuccess: (_, { canonicalName, existingProductId }) => {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       qc.invalidateQueries({ queryKey: ["all-products"] });
@@ -467,14 +301,8 @@ export function ProductAudit() {
   // ── product catalog: rename ───────────────────────────────────────────────
 
   const renameMutation = useMutation({
-    mutationFn: async ({ productId, name, category }: { productId: string; name: string; category: string }) => {
-      const { error } = await supabase.rpc("rename_product", {
-        p_product_id: productId,
-        p_canonical_name: name.trim(),
-        p_category: category,
-      });
-      if (error) throw error;
-    },
+    mutationFn: ({ productId, name, category }: { productId: string; name: string; category: string }) =>
+      renameProduct(productId, name, category),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-products"] });
       setEditingProductId(null);
@@ -486,10 +314,7 @@ export function ProductAudit() {
   // ── product catalog: delete ───────────────────────────────────────────────
 
   const deleteMutation = useMutation({
-    mutationFn: async (productId: string) => {
-      const { error } = await supabase.rpc("delete_product", { p_product_id: productId });
-      if (error) throw error;
-    },
+    mutationFn: (productId: string) => deleteProduct(productId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-products"] });
       qc.invalidateQueries({ queryKey: ["audit-items"] });
@@ -503,10 +328,7 @@ export function ProductAudit() {
   // ── delete raw mapping ────────────────────────────────────────────────────
 
   const deleteMappingMutation = useMutation({
-    mutationFn: async (mappingId: string) => {
-      const { error } = await supabase.rpc("delete_product_raw_mapping", { p_mapping_id: mappingId });
-      if (error) throw error;
-    },
+    mutationFn: (mappingId: string) => deleteProductMapping(mappingId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["product-raw-mappings"] });
       toast.success("Mapping removed. Items with this raw name will re-appear in the audit queue on next scan.");
