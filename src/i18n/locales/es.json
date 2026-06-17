@@ -34,7 +34,10 @@
     "close": "Cerrar",
     "signedInAs": "Conectado como",
     "required": "Campo requerido",
-    "personalGroup": "Personal (solo yo)"
+    "personalGroup": "Personal (solo yo)",
+    "prevPage": "Anterior",
+    "nextPage": "Siguiente",
+    "pageInfo": "Página {{current}} de {{total}}"
   },
   "auth": {
     "signInTitle": "Iniciar sesión",

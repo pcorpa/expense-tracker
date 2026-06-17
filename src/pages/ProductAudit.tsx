@@ -200,6 +200,8 @@ function ProductCombobox({
   );
 }
 
+const CLUSTERS_PER_PAGE = 10;
+
 // ─── component ────────────────────────────────────────────────────────────────
 
 export function ProductAudit() {
@@ -258,6 +260,7 @@ export function ProductAudit() {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       qc.invalidateQueries({ queryKey: ["product-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-audit-count"] });
+      setPotentialPage(0); setNewPage(0);
       toast.success(`"${rawName}" confirmed.`);
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
@@ -270,6 +273,7 @@ export function ProductAudit() {
       resetTransactionItemsToNewCandidate(ids),
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
+      setPotentialPage(0); setNewPage(0);
       toast.info(`"${rawName}" moved to New Candidates.`);
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
@@ -293,6 +297,7 @@ export function ProductAudit() {
       qc.invalidateQueries({ queryKey: ["all-products"] });
       qc.invalidateQueries({ queryKey: ["product-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-audit-count"] });
+      setPotentialPage(0); setNewPage(0);
       toast.success(existingProductId ? `Mapped to "${canonicalName}".` : `"${canonicalName}" added to catalog.`);
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
@@ -320,6 +325,7 @@ export function ProductAudit() {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       qc.invalidateQueries({ queryKey: ["product-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-audit-count"] });
+      setPotentialPage(0); setNewPage(0);
       toast.success("Product deleted. Affected items will re-appear on next scan.");
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
@@ -336,9 +342,16 @@ export function ProductAudit() {
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
   });
 
-  // ── search ────────────────────────────────────────────────────────────────
+  // ── search + pagination ───────────────────────────────────────────────────
 
   const [auditSearch, setAuditSearch] = useState("");
+  const [potentialPage, setPotentialPage] = useState(0);
+  const [newPage, setNewPage] = useState(0);
+
+  useEffect(() => {
+    setPotentialPage(0);
+    setNewPage(0);
+  }, [auditSearch]);
 
   // ── cluster state ─────────────────────────────────────────────────────────
 
@@ -462,6 +475,11 @@ export function ProductAudit() {
       : newCandidateClusters,
   [newCandidateClusters, auditSearch]);
 
+  const pagedPotential = visiblePotential.slice(potentialPage * CLUSTERS_PER_PAGE, (potentialPage + 1) * CLUSTERS_PER_PAGE);
+  const totalPotentialPages = Math.ceil(visiblePotential.length / CLUSTERS_PER_PAGE);
+  const pagedNew = visibleNew.slice(newPage * CLUSTERS_PER_PAGE, (newPage + 1) * CLUSTERS_PER_PAGE);
+  const totalNewPages = Math.ceil(visibleNew.length / CLUSTERS_PER_PAGE);
+
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
@@ -540,7 +558,7 @@ export function ProductAudit() {
               <section style={{ marginBottom: 36 }}>
                 <SectionHeader icon={<ArrowRightLeft size={16} />} title={t("audit.potentialMatchesSection")} subtitle={t("audit.potentialMatchesDesc")} color="var(--color-accent)" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {visiblePotential.map((cluster) => {
+                  {pagedPotential.map((cluster) => {
                     const suggestedProduct = cluster.items[0].suggested_product_id
                       ? productsById.get(cluster.items[0].suggested_product_id)
                       : null;
@@ -652,6 +670,19 @@ export function ProductAudit() {
                     );
                   })}
                 </div>
+                {totalPotentialPages > 1 && (
+                  <div className="tx-pagination">
+                    <button type="button" style={ghostBtn} disabled={potentialPage === 0} onClick={() => setPotentialPage((p) => p - 1)}>
+                      {t("common.prevPage")}
+                    </button>
+                    <span className="tx-pagination__info">
+                      {t("common.pageInfo", { current: potentialPage + 1, total: totalPotentialPages })}
+                    </span>
+                    <button type="button" style={ghostBtn} disabled={potentialPage >= totalPotentialPages - 1} onClick={() => setPotentialPage((p) => p + 1)}>
+                      {t("common.nextPage")}
+                    </button>
+                  </div>
+                )}
               </section>
             )}
 
@@ -660,7 +691,7 @@ export function ProductAudit() {
               <section style={{ marginBottom: 36 }}>
                 <SectionHeader icon={<Plus size={16} />} title={t("audit.newCandidatesSection")} subtitle={t("audit.newCandidatesDesc")} color="#f59e0b" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {visibleNew.map((cluster) => {
+                  {pagedNew.map((cluster) => {
                     const edit = getClusterEdit(cluster.key, cluster.rawName, cluster.category ?? "Otro");
                     const selectedProduct = clusterSelectedProduct[cluster.key] ?? null;
                     const isPending = approveMutation.isPending;
@@ -715,6 +746,19 @@ export function ProductAudit() {
                     );
                   })}
                 </div>
+                {totalNewPages > 1 && (
+                  <div className="tx-pagination">
+                    <button type="button" style={ghostBtn} disabled={newPage === 0} onClick={() => setNewPage((p) => p - 1)}>
+                      {t("common.prevPage")}
+                    </button>
+                    <span className="tx-pagination__info">
+                      {t("common.pageInfo", { current: newPage + 1, total: totalNewPages })}
+                    </span>
+                    <button type="button" style={ghostBtn} disabled={newPage >= totalNewPages - 1} onClick={() => setNewPage((p) => p + 1)}>
+                      {t("common.nextPage")}
+                    </button>
+                  </div>
+                )}
               </section>
             )}
 

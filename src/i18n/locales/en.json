@@ -34,7 +34,10 @@
     "close": "Close",
     "signedInAs": "Signed in as",
     "required": "Required",
-    "personalGroup": "Personal (just me)"
+    "personalGroup": "Personal (just me)",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "pageInfo": "Page {{current}} of {{total}}"
   },
   "auth": {
     "signInTitle": "Sign in",
