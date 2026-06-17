@@ -297,6 +297,90 @@ Mirrors the vendor admin controls introduced in Phase 6:
 - Replaced all `window.confirm()` calls app-wide with the shared `ConfirmModal` component (dark-mode aware, styled, non-blocking).
 - Affected pages: `ProductAudit.tsx`, `VendorAudit.tsx`, `EditRecurringExpense.tsx`.
 
+### Phase 9 — Scalability & Performance Hardening
+
+Addresses the key bottlenecks identified via architectural review (June 2026). The app is functional for current usage but would degrade noticeably at 10k+ transactions or multiple active groups without these changes.
+
+#### 9.1 Database Indexes
+
+Add a migration (`0024_scalability_indexes.sql`) with the following missing indexes:
+
+```sql
+-- Most impactful: date-range filtering used in all list views
+CREATE INDEX idx_transactions_group_date ON transactions(group_id, date DESC);
+
+-- Composite group membership lookup (speeds up RLS policy evaluation)
+CREATE INDEX idx_group_members_user_group ON group_members(user_id, group_id);
+```
+
+#### 9.2 Pagination — ExpenseList
+
+`ExpenseList.tsx` currently fetches **all** transactions with no limit. Replace with offset-based pagination:
+
+- Add a page/offset state variable
+- Use `.range(from, to)` on the Supabase query
+- Render page controls (Previous / Next) or infinite scroll via an Intersection Observer
+- Target: 50 rows per page
+
+#### 9.3 Pagination — ReviewQueue & Audit Pages
+
+Same pattern as 9.2 applied to:
+
+- `ReviewQueue.tsx` — paginate the unreviewed transactions list
+- `VendorAudit.tsx` and `ProductAudit.tsx` — paginate the pending items list to avoid loading all unreviewed records into memory for client-side fuzzy matching
+
+Both audit pages currently run Fuse.js over the full unreviewed dataset. With pagination the fuzzy match only runs on the visible page, eliminating the CPU-bound hang at high volume.
+
+#### 9.4 Route-Level Lazy Loading
+
+In `App.tsx`, replace all static page imports with `React.lazy()` + `<Suspense>`:
+
+```tsx
+// Before
+import ExpenseList from './pages/ExpenseList';
+
+// After
+const ExpenseList = React.lazy(() => import('./pages/ExpenseList'));
+```
+
+Wrap routes in a single `<Suspense fallback={<div>Loading...</div>}>`. This splits the bundle by route and eliminates the current single-chunk initial load.
+
+#### 9.5 API Service Layer
+
+Create `src/api/` with one file per domain. Each file exports typed async functions that wrap the Supabase calls currently scattered across page components:
+
+- `src/api/transactions.ts` — `getTransactions()`, `createTransaction()`, `updateTransaction()`, `deleteTransaction()`
+- `src/api/vendors.ts` — `getVendors()`, `getVendorMappings()`, `approveVendorMapping()`
+- `src/api/products.ts` — `getProducts()`, `approveProductMapping()`
+- `src/api/groups.ts` — `getGroups()`, `inviteMember()`
+
+Pages import from `src/api/` and use `useQuery`/`useMutation` (already in use for audit counts) — no direct Supabase calls in components. This is a refactor of existing code; no new features.
+
+#### 9.6 Consolidate Data Fetching to React Query
+
+Replace the ~35 `useEffect + useState` data fetching patterns with `useQuery`. The React Query client is already set up in `App.tsx`. Migration is page-by-page; start with `ExpenseList.tsx` and `ReviewQueue.tsx` as the highest-traffic pages.
+
+Benefits: automatic caching, deduplication of identical queries, consistent loading/error states, and background refetch.
+
+#### 9.7 Bundle Analysis
+
+Install `rollup-plugin-visualizer` (Vite-compatible):
+
+```ts
+// vite.config.ts
+import { visualizer } from 'rollup-plugin-visualizer';
+plugins: [react(), visualizer({ open: true })]
+```
+
+Run once to identify any unexpectedly large chunks. No ongoing requirement — dev tooling only.
+
+#### 9.8 Verification
+
+- Seed dev database with 10k transactions and confirm `ExpenseList` loads in < 500ms (paginated)
+- Use Supabase dashboard → Query Performance to confirm `idx_transactions_group_date` is used for date-filtered queries
+- Run `pnpm build` and inspect chunk sizes before/after lazy loading
+- Open VendorAudit and ProductAudit with 500+ pending items; confirm no UI hang
+
 ---
 
 ## 7. Deployment Architecture
