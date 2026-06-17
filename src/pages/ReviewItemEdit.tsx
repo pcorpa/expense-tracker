@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
@@ -35,6 +35,8 @@ export function ReviewItemEdit() {
     itemId: string;
   }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from: string = (location.state as any)?.from ?? "/review";
   const { t } = useTranslation();
   const isNew = itemId === "new";
 
@@ -134,7 +136,7 @@ export function ReviewItemEdit() {
       return;
     }
 
-    navigate("/review");
+    navigate(from);
   };
 
   const isLoading = !initialized && !itemQuery.isError && itemQuery.isLoading;
@@ -145,10 +147,10 @@ export function ReviewItemEdit() {
         <button
           type="button"
           className="button button--secondary button--small"
-          onClick={() => navigate("/review")}
+          onClick={() => navigate(from)}
           style={{ marginBottom: 24 }}
         >
-          ← {t("reviewEdit.back")}
+          ← {from === "/review" ? t("reviewEdit.back") : t("common.back")}
         </button>
         <p className="eyebrow">{isNew ? t("reviewEdit.newItem") : t("reviewEdit.editItem")}</p>
         <h1>
@@ -258,7 +260,7 @@ export function ReviewItemEdit() {
             <button
               type="button"
               className="button button--secondary"
-              onClick={() => navigate("/review")}
+              onClick={() => navigate(from)}
             >
               {t("common.cancel")}
             </button>

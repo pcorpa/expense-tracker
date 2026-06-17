@@ -114,7 +114,10 @@
     "income": "Income",
     "unnamedItem": "Unnamed item",
     "clear": "Clear",
-    "done": "Done"
+    "done": "Done",
+    "deleteTitle": "Delete transaction?",
+    "deleteBody": "This will permanently delete \"{{name}}\" and all its items. This cannot be undone.",
+    "deleting": "Deleting…"
   },
   "review": {
     "eyebrow": "Human review",

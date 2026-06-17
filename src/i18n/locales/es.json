@@ -114,7 +114,10 @@
     "income": "Ingreso",
     "unnamedItem": "Artículo sin nombre",
     "clear": "Limpiar",
-    "done": "Listo"
+    "done": "Listo",
+    "deleteTitle": "¿Eliminar transacción?",
+    "deleteBody": "Se eliminará permanentemente \"{{name}}\" y todos sus ítems. No se puede deshacer.",
+    "deleting": "Eliminando…"
   },
   "review": {
     "eyebrow": "Revisión humana",

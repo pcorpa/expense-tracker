@@ -4,9 +4,11 @@ import { useTranslation } from "react-i18next";
 import { DayPicker } from "react-day-picker";
 import type { DateRange } from "react-day-picker";
 import { format } from "date-fns";
+import { Pencil, Trash2 } from "lucide-react";
 import "react-day-picker/style.css";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
+import { ConfirmModal } from "../components/ConfirmModal";
 import type { Group, Transaction } from "../types";
 
 export function ExpenseList() {
@@ -24,6 +26,8 @@ export function ExpenseList() {
   const [sortBy, setSortBy] = useState<"date" | "amount">("date");
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -63,6 +67,20 @@ export function ExpenseList() {
           });
       });
   }, [user]);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const { error } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("id", deleteTarget.id);
+    setDeleting(false);
+    if (!error) {
+      setTransactions((prev) => prev.filter((t) => t.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    }
+  };
 
   const filtered = useMemo(() => {
     let result = transactions;
@@ -192,6 +210,32 @@ export function ExpenseList() {
                   <strong className={`tx-amount tx-amount--${transaction.type}`}>
                     ${transaction.total_amount?.toFixed(2) ?? "0.00"}
                   </strong>
+                  <button
+                    type="button"
+                    className="button button--secondary button--small"
+                    onClick={() =>
+                      navigate(`/review/${transaction.id}/edit`, {
+                        state: { from: "/transactions" },
+                      })
+                    }
+                    title={t("common.edit")}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    className="button button--secondary button--small"
+                    style={{ color: "var(--color-danger, #e53e3e)" }}
+                    onClick={() =>
+                      setDeleteTarget({
+                        id: transaction.id,
+                        name: transaction.vendor_or_source ?? t("transactions.unknownSource"),
+                      })
+                    }
+                    title={t("common.delete")}
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               </div>
               <p className="small-text">
@@ -205,7 +249,9 @@ export function ExpenseList() {
                       type="button"
                       className="item-row-btn"
                       onClick={() =>
-                        navigate(`/review/${transaction.id}/items/${item.id}`)
+                        navigate(`/review/${transaction.id}/items/${item.id}`, {
+                          state: { from: "/transactions" },
+                        })
                       }
                     >
                       <div className="item-row-btn__left">
@@ -236,6 +282,17 @@ export function ExpenseList() {
           ))}
         </div>
       </div>
+
+      <ConfirmModal
+        open={deleteTarget !== null}
+        title={t("transactions.deleteTitle")}
+        confirmLabel={t("common.delete")}
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      >
+        {t("transactions.deleteBody", { name: deleteTarget?.name ?? "" })}
+      </ConfirmModal>
 
       {showDatePicker && (
         <div

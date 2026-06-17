@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../lib/supabase";
@@ -14,6 +14,8 @@ type FormState = {
 export function ReviewTransactionEdit() {
   const { transactionId } = useParams<{ transactionId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from: string = (location.state as any)?.from ?? "/review";
   const { t } = useTranslation();
 
   const [form, setForm] = useState<FormState>({
@@ -83,7 +85,7 @@ export function ReviewTransactionEdit() {
       return;
     }
 
-    navigate("/review");
+    navigate(from);
   };
 
   const isLoading = !initialized && !transactionQuery.isError && transactionQuery.isLoading;
@@ -94,10 +96,10 @@ export function ReviewTransactionEdit() {
         <button
           type="button"
           className="button button--secondary button--small"
-          onClick={() => navigate("/review")}
+          onClick={() => navigate(from)}
           style={{ marginBottom: 24 }}
         >
-          ← {t("reviewEdit.back")}
+          ← {from === "/review" ? t("reviewEdit.back") : t("common.back")}
         </button>
         <p className="eyebrow">{t("reviewEdit.editTransaction")}</p>
         <h1>{form.vendor_or_source || t("reviewEdit.defaultTitle")}</h1>
@@ -172,7 +174,7 @@ export function ReviewTransactionEdit() {
             <button
               type="button"
               className="button button--secondary"
-              onClick={() => navigate("/review")}
+              onClick={() => navigate(from)}
             >
               {t("common.cancel")}
             </button>
