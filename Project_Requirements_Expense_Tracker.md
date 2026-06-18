@@ -301,7 +301,7 @@ Mirrors the vendor admin controls introduced in Phase 6:
 
 Addresses the key bottlenecks identified via architectural review (June 2026). The app is functional for current usage but would degrade noticeably at 10k+ transactions or multiple active groups without these changes.
 
-#### 9.1 Database Indexes
+#### 9.1 Database Indexes ✅ Complete
 
 Add a migration (`0024_scalability_indexes.sql`) with the following missing indexes:
 
@@ -367,17 +367,13 @@ Pages/components migrated: `Profile`, `Invitations`, `ProcessedImages`, `ReviewQ
 
 Benefits achieved: automatic caching, query deduplication, consistent loading/error states, background refetch, shared `['all-groups']` cache across pages.
 
-#### 9.7 Bundle Analysis
+#### 9.7 Bundle Analysis ✅ Complete
 
-Install `rollup-plugin-visualizer` (Vite-compatible):
+Installed `rollup-plugin-visualizer` as a dev dependency. Added to `vite.config.ts` with `open: false` (outputs `dist/stats.html` on every build). Key findings from initial analysis:
 
-```ts
-// vite.config.ts
-import { visualizer } from 'rollup-plugin-visualizer';
-plugins: [react(), visualizer({ open: true })]
-```
-
-Run once to identify any unexpectedly large chunks. No ongoing requirement — dev tooling only.
+- `heic2any` — 1,352 kB minified (344 kB gzip). Already lazy-imported inside `convertHeicToJpeg`, so it only loads when a HEIC file is processed.
+- `Analytics` / Recharts chunk — 404 kB minified (115 kB gzip). Already lazy-loaded via route-level code splitting (Phase 9.4).
+- All other route chunks are under 30 kB. No additional splitting required.
 
 #### 9.8 Verification
 

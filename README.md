@@ -272,3 +272,4 @@ These rules are enforced throughout and must not be relaxed:
 | Phase 9.4 — Route-level lazy loading: 19 page chunks via React.lazy + Suspense | Complete |
 | Phase 9.5 — API service layer (`src/api/`) for core data domains | Complete |
 | Phase 9.6 — Complete API layer: all remaining pages migrated to `src/api/` + React Query | Complete |
+| Phase 9.7 — Bundle analysis (`rollup-plugin-visualizer`; heic2any + Recharts are largest chunks, both already lazy-loaded) | Complete |
