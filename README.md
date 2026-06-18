@@ -56,7 +56,9 @@ A mobile-first, AI-powered expense tracker with receipt scanning, group manageme
 ```
 src/
   pages/
-    Home.tsx                  landing/dashboard
+    LandingPage.tsx           public marketing landing page (route: /)
+    PricingPage.tsx           public pricing page (route: /pricing)
+    Home.tsx                  authenticated dashboard (route: /dashboard)
     SignIn.tsx / SignUp.tsx
     UploadReceipt.tsx          receipt upload → Supabase Storage → process-receipts Edge Fn
     TransactionEntry.tsx       manual expense entry with product autocomplete + math validation
@@ -77,6 +79,8 @@ src/
     Profile.tsx                user profile
 
   components/
+    AppLayout.tsx              authenticated app layout — sidebar nav + Outlet + ProtectedRoute gate
+    PublicLayout.tsx           public marketing layout — top header + Outlet (no app sidebar)
     NavBar.tsx                 desktop sidebar nav with badge counts and theme/language toggles
     MobileMenu.tsx             mobile drawer nav with badge counts
     ConfirmModal.tsx           reusable in-app confirmation dialog (replaces browser confirm())
@@ -273,3 +277,4 @@ These rules are enforced throughout and must not be relaxed:
 | Phase 9.5 — API service layer (`src/api/`) for core data domains | Complete |
 | Phase 9.6 — Complete API layer: all remaining pages migrated to `src/api/` + React Query | Complete |
 | Phase 9.7 — Bundle analysis (`rollup-plugin-visualizer`; heic2any + Recharts are largest chunks, both already lazy-loaded) | Complete |
+| Phase 10 — Public marketing shell: landing page + pricing page; React Router layout route split (`PublicLayout` / `AppLayout`); dashboard moved to `/dashboard` | Complete |

@@ -384,6 +384,54 @@ Installed `rollup-plugin-visualizer` as a dev dependency. Added to `vite.config.
 
 ---
 
+### Phase 10 — Public Marketing Shell ✅ Complete
+
+Adds a public-facing landing page and pricing page under a separate marketing layout, while locking all app routes behind authentication. Unauthenticated visitors can explore the product before signing up; authenticated users hitting `/` are auto-redirected to `/dashboard`.
+
+#### 10.1 Layout Route Split
+
+Replaced the single `AppShell` layout with two distinct layout components, using React Router v7's `<Outlet />`-based layout route pattern:
+
+- **`PublicLayout`** — sticky marketing header (logo, Pricing nav link, Sign In link, "Get Started" CTA) + `<Outlet />`. No app sidebar. Supports dark/light theme toggle and language switch.
+- **`AppLayout`** — extracted from `AppShell`; uses `<Outlet />` instead of internal `<Routes>`; absorbs the per-route `<ProtectedRoute>` wrapper into a single auth gate at the layout level (if no user → redirect to `/signin`).
+
+Route structure:
+
+```
+<Route element={<PublicLayout />}>
+  /             → LandingPage   (redirects authenticated users to /dashboard)
+  /pricing      → PricingPage
+  /signin       → SignIn
+  /signup       → SignUp
+
+<Route element={<AppLayout />}>
+  /dashboard    → Home          (moved from /)
+  /upload, /review, /analytics, ... (all existing paths unchanged)
+```
+
+All existing app route **paths are unchanged**. No database or API changes.
+
+#### 10.2 New Pages
+
+- **`LandingPage`** (`/`) — hero section (headline, sub, CTAs), 6-feature grid (AI scanning, analytics, groups, recurring, shopping list, normalization), bottom CTA. On mount: if user is authenticated, `<Navigate to="/dashboard" replace />`.
+- **`PricingPage`** (`/pricing`) — single "Free beta" tier card with full feature list. No auth required.
+
+#### 10.3 Navigation & Auth Updates
+
+- `NavBar.tsx` and `MobileMenu.tsx` — Home link updated from `"/"` to `"/dashboard"`.
+- `PublicOnlyRoute.tsx` — redirect for authenticated users changed from `"/"` to `"/dashboard"`.
+- `SignIn.tsx` and `SignUp.tsx` — all `navigate("/")` post-auth calls updated to `navigate("/dashboard")`.
+- Also wired up the missing `/processed-images` route (page existed but had no route definition).
+
+#### 10.4 i18n
+
+New keys added to `en.json` and `es.json`:
+- `nav.pricing` — "Pricing" / "Precios"
+- `landing.*` — all landing page copy (eyebrow, headline, sub, feature cards, CTA)
+- `pricing.*` — all pricing page copy including `freeFeatures` array
+
+---
+
 ## 7. Deployment Architecture
 
 | Layer | Service | Branch |

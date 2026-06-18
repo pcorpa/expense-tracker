@@ -42,7 +42,7 @@ export function MobileMenu({
   const { data: vendorCount = 0 } = usePendingVendorCount();
 
   const links = [
-    { to: "/", label: t("nav.home"), icon: HomeIcon },
+    { to: "/dashboard", label: t("nav.home"), icon: HomeIcon },
     { to: "/entry", label: t("nav.newEntry"), icon: Plus },
     { to: "/upload", label: t("nav.uploadReceipt"), icon: Image },
     { to: "/transactions", label: t("nav.transactions"), icon: ClipboardList },

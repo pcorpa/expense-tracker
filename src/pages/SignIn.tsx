@@ -15,7 +15,7 @@ export function SignIn() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      navigate("/", { replace: true });
+      navigate("/dashboard", { replace: true });
     }
   }, [user, authLoading, navigate]);
 
@@ -32,7 +32,7 @@ export function SignIn() {
       return;
     }
 
-    navigate("/");
+    navigate("/dashboard");
   }
 
   async function signInWithGoogle() {

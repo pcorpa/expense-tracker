@@ -66,3 +66,5 @@ export function ProcessedImages() {
     </main>
   );
 }
+
+export default ProcessedImages;

@@ -20,7 +20,8 @@
     "invites_one": "{{count}} invitación",
     "invites_other": "{{count}} invitaciones",
     "audit": "{{count}} auditoría",
-    "vendor": "{{count}} vendor"
+    "vendor": "{{count}} vendor",
+    "pricing": "Precios"
   },
   "common": {
     "loading": "Cargando sesión...",
@@ -623,5 +624,62 @@
     "downloadJSON": "Descargar JSON ({{count}} transacciones)",
     "csvDesc": "transaction_id, fecha, proveedor, categoría, nombre_ítem, cantidad, precio_unitario, total_ítem, moneda — una fila por ítem.",
     "jsonDesc": "Estructura anidada con encabezado de transacción y array de ítems, lista para R, Python o cualquier entorno estadístico."
+  },
+  "landing": {
+    "eyebrow": "Seguimiento de gastos con IA",
+    "headline": "Tomá el control de tus finanzas",
+    "sub": "Escaneá recibos, seguí tus gastos y obtené insights — todo en un solo lugar. Funciona para individuos y grupos.",
+    "getStarted": "Comenzar gratis",
+    "featuresTitle": "Todo lo que necesitás",
+    "bottomCtaTitle": "¿Listo para empezar?",
+    "bottomCtaSub": "Creá tu cuenta gratuita y empezá a registrar gastos en minutos.",
+    "features": {
+      "receiptScan": {
+        "title": "Escaneo de recibos con IA",
+        "desc": "Subí una foto — Gemini 2.5 Flash extrae tienda, fecha, ítems y totales automáticamente."
+      },
+      "analytics": {
+        "title": "Analíticas en 7 pestañas",
+        "desc": "Resumen, Tendencias, Productos, Anomalías, Pareto, Grupos y exportación a CSV/JSON."
+      },
+      "groups": {
+        "title": "Gastos grupales",
+        "desc": "Compartí gastos con familia o compañeros. Ves la contribución de cada miembro de un vistazo."
+      },
+      "recurring": {
+        "title": "Gastos recurrentes",
+        "desc": "Seguí suscripciones, cuotas y facturas periódicas. Se generan automáticamente en sus fechas."
+      },
+      "shoppingList": {
+        "title": "Lista de compras inteligente",
+        "desc": "Lista mensual derivada de tu historial de compras — nunca olvidés lo que solés comprar."
+      },
+      "normalization": {
+        "title": "Auditoría de vendors y productos",
+        "desc": "Pipeline de fuzzy-matching para mantener tus datos limpios. Confirmás una vez, nunca más."
+      }
+    }
+  },
+  "pricing": {
+    "eyebrow": "Precios simples",
+    "headline": "Gratis durante la beta",
+    "sub": "Todas las funcionalidades disponibles sin costo durante el período beta.",
+    "freeFeatures": [
+      "Escaneos de recibos ilimitados",
+      "Extracción con IA (Gemini 2.5 Flash)",
+      "Dashboard de analíticas con 7 pestañas",
+      "Grupos y gastos compartidos",
+      "Gastos recurrentes",
+      "Lista de compras inteligente",
+      "Normalización de vendors y productos",
+      "Tema oscuro / claro",
+      "Interfaz en español e inglés"
+    ],
+    "free": {
+      "name": "Beta gratuita",
+      "price": "$0",
+      "desc": "Acceso completo durante la beta. Sin tarjeta de crédito.",
+      "cta": "Crear cuenta gratis"
+    }
   }
 }
