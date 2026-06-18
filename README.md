@@ -267,6 +267,8 @@ These rules are enforced throughout and must not be relaxed:
 | Phase 7 — Recurring expenses (subscriptions, installments, periodic bills; auto-generation; cancel/delete) | Complete |
 | Phase 8 — Shopping list, product admin controls, dark/light theme, ES/EN bilingual support | Complete |
 | Phase 9.1 — Database indexes for transactions and group_members | Complete |
-| Phase 9.3 — Server-side pagination for ReviewQueue, VendorAudit, ProductAudit | Complete |
+| Phase 9.2 — Server-side pagination for ExpenseList (50 rows/page) | Complete |
+| Phase 9.3 — Pagination for ReviewQueue (server-side, 20/page) and VendorAudit/ProductAudit (client cluster, 10/page) | Complete |
+| Phase 9.4 — Route-level lazy loading: 19 page chunks via React.lazy + Suspense | Complete |
 | Phase 9.5 — API service layer (`src/api/`) for core data domains | Complete |
 | Phase 9.6 — Complete API layer: all remaining pages migrated to `src/api/` + React Query | Complete |

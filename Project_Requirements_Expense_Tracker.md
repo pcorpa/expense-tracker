@@ -313,37 +313,34 @@ CREATE INDEX idx_transactions_group_date ON transactions(group_id, date DESC);
 CREATE INDEX idx_group_members_user_group ON group_members(user_id, group_id);
 ```
 
-#### 9.2 Pagination — ExpenseList
+#### 9.2 Pagination — ExpenseList ✅ Complete
 
-`ExpenseList.tsx` currently fetches **all** transactions with no limit. Replace with offset-based pagination:
+`ExpenseList.tsx` fetches transactions with server-side offset pagination:
 
-- Add a page/offset state variable
-- Use `.range(from, to)` on the Supabase query
-- Render page controls (Previous / Next) or infinite scroll via an Intersection Observer
-- Target: 50 rows per page
+- Page size: 50 rows
+- Uses `.range(from, to)` + `{ count: 'exact' }` on the Supabase query
+- Previous / Next controls with "Page N of M" indicator
+- Shared `.tx-pagination` CSS class reused across all paginated pages
 
-#### 9.3 Pagination — ReviewQueue & Audit Pages
+#### 9.3 Pagination — ReviewQueue & Audit Pages ✅ Complete
 
-Same pattern as 9.2 applied to:
+- `ReviewQueue.tsx` — server-side pagination via `src/api/reviewQueue.ts`, 20 transactions/page; page resets to 0 after approve/retry actions
+- `VendorAudit.tsx` and `ProductAudit.tsx` — client-side cluster pagination (10 clusters/page per section); each section (potential matches / new candidates) paginates independently; pages reset when the search filter changes or a mutation succeeds
+- Shared i18n keys added under `"common"`: `prevPage`, `nextPage`, `pageInfo`
 
-- `ReviewQueue.tsx` — paginate the unreviewed transactions list
-- `VendorAudit.tsx` and `ProductAudit.tsx` — paginate the pending items list to avoid loading all unreviewed records into memory for client-side fuzzy matching
+#### 9.4 Route-Level Lazy Loading ✅ Complete
 
-Both audit pages currently run Fuse.js over the full unreviewed dataset. With pagination the fuzzy match only runs on the visible page, eliminating the CPU-bound hang at high volume.
-
-#### 9.4 Route-Level Lazy Loading
-
-In `App.tsx`, replace all static page imports with `React.lazy()` + `<Suspense>`:
+All 19 page components converted to `React.lazy()` in `App.tsx`. Each page file received a `export default ComponentName;` line (keeping the existing named export) so the standard lazy pattern applies without wrappers:
 
 ```tsx
-// Before
-import ExpenseList from './pages/ExpenseList';
+// Each page file — one line added at the bottom:
+export default ExpenseList;
 
-// After
-const ExpenseList = React.lazy(() => import('./pages/ExpenseList'));
+// App.tsx — clean standard pattern:
+const ExpenseList = lazy(() => import('./pages/ExpenseList'));
 ```
 
-Wrap routes in a single `<Suspense fallback={<div>Loading...</div>}>`. This splits the bundle by route and eliminates the current single-chunk initial load.
+Routes wrapped in `<Suspense fallback={<main className="page" />}>` (blank content area; shell stays visible). Non-page imports (NavBar, MobileMenu, ProtectedRoute, PublicOnlyRoute, providers) remain static. Build now produces ~19 separate JS chunks; Analytics (404 kB charting library) and other heavy pages are only downloaded when first navigated to.
 
 #### 9.5 API Service Layer ✅ Complete
 
