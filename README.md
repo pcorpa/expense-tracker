@@ -26,7 +26,7 @@ A mobile-first, AI-powered expense tracker with receipt scanning, group manageme
 - **Admin gating** — only group admins can add, edit, or delete vendors and vendor mappings; members have read-only access
 - **Recurring expenses** — register subscriptions (Netflix, gym), installment plans (credit card purchases split across N months), and periodic bills (electricity, water); each template auto-generates approved transactions on their due dates when the Recurrentes page is opened; installment cards show a live progress bar (e.g. "5/12 cuotas — 42%") and auto-complete when all installments are paid; cancel, edit, or delete (template only or template + all linked transactions); custom category per recurring expense; KPI summary row showing monthly fixed total, active count, and installments in progress
 - **Shopping List** — monthly smart shopping list derived from purchase history; shows canonical product names with average quantity per purchase; cold-start fallback for new groups with no history
-- **Product catalog management** — admins can rename and delete canonical products inline from the Product Audit page; persistent confirmed mappings stored in `product_raw_mappings` (mirrors vendor raw mappings); deleting a mapping resets auto-matched items to the scan queue so they re-surface on the next scan; two-panel audit layout (left: review queue, right: sticky catalog + confirmed mappings)
+- **Product catalog management** — admins can rename and delete canonical products inline from the Product Audit page; persistent confirmed mappings stored in `product_raw_mappings` (mirrors vendor raw mappings); deleting a mapping resets auto-matched items to the scan queue so they re-surface on the next scan; single-column audit layout with tab navigation (New Candidates / Catalog / Mapped); search bar scopes to the active tab and clears on tab switch
 - **Dark / light theme** — toggle in the nav bar, persisted to `localStorage`; full CSS variable–based theming applied app-wide
 - **Bilingual UI (ES / EN)** — full Spanish and English translation via `react-i18next`; language switch available in the nav bar
 - **Processed images** — browsable history of all receipt images uploaded by the user
@@ -67,8 +67,8 @@ src/
     GroupManager.tsx           group creation and member invitations
     Invitations.tsx            pending invitations with Accept/Decline UI
     Analytics.tsx              7-tab analytics dashboard (Recharts); Pareto tab has canonical/raw vendor toggle
-    ProductAudit.tsx           two-panel audit: left = fuzzy-match review queue; right = product catalog + confirmed mappings
-    VendorAudit.tsx            vendor normalization — review queue, vendor catalog, confirmed mappings
+    ProductAudit.tsx           audit: potential matches always visible; tab nav (New Candidates / Catalog / Mapped); search scopes to active tab
+    VendorAudit.tsx            vendor normalization — same tab nav as ProductAudit; review queue, vendor catalog, confirmed mappings
     RecurringExpenses.tsx      recurring expense list with KPI summary, type-colored cards, installment progress
     AddRecurringExpense.tsx    create subscriptions, installment plans, and periodic bills
     EditRecurringExpense.tsx   edit, cancel, or delete recurring expenses

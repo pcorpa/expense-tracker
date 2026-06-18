@@ -514,7 +514,12 @@
     "vendorDeleted": "Vendor deleted. Affected transactions will re-appear on next scan.",
     "vendorMappingRemoved": "Mapping removed. Transactions with this raw name will re-appear on next scan.",
     "receiptLoadError": "Could not load receipt image.",
-    "unknownDate": "Unknown date"
+    "unknownDate": "Unknown date",
+    "tabCandidates": "New Candidates",
+    "tabCatalog": "Catalog",
+    "tabMapped": "Mapped",
+    "filterCatalog": "Filter catalog…",
+    "filterMapped": "Filter mappings…"
   },
   "processedImages": {
     "eyebrow": "Uploaded receipts",

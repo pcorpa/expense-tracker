@@ -265,7 +265,7 @@ Generated transactions appear in the expense list and analytics for their respec
 
 Mirrors the vendor admin controls introduced in Phase 6:
 
-- **Product catalog panel** — the Product Audit page adopts a two-panel layout: left panel holds the review queue (potential matches + new candidates); right panel shows the canonical product catalog and confirmed mappings, sticky on desktop.
+- **Product catalog panel** — the Product Audit page uses a single-column layout with tab navigation below the Potential Matches section: three pill tabs ("New Candidates", "Catalog", "Mapped") control which section is shown below. The search bar filters the active tab's content (candidates → raw name, catalog → canonical name, mapped → raw or canonical name); switching tabs clears the search.
 - **Inline rename / delete** — group admins can rename or delete canonical products directly from the right panel.
 - **`product_raw_mappings` table** (`0021_product_admin_controls.sql`) — every confirmed raw item name → canonical product decision is stored persistently. Future scans auto-match the same raw name without manual review.
 - **Confirmed mappings panel** — admins can view all confirmed mappings and delete individual ones. Deleting a mapping resets the `mapping_status` of all previously auto-matched `transaction_items` to `NULL` so they re-appear in the audit queue on the next scan (`0023`).
@@ -325,7 +325,7 @@ CREATE INDEX idx_group_members_user_group ON group_members(user_id, group_id);
 #### 9.3 Pagination — ReviewQueue & Audit Pages ✅ Complete
 
 - `ReviewQueue.tsx` — server-side pagination via `src/api/reviewQueue.ts`, 20 transactions/page; page resets to 0 after approve/retry actions
-- `VendorAudit.tsx` and `ProductAudit.tsx` — client-side cluster pagination (10 clusters/page per section); each section (potential matches / new candidates) paginates independently; pages reset when the search filter changes or a mutation succeeds
+- `VendorAudit.tsx` and `ProductAudit.tsx` — single-column layout with three tab buttons ("New Candidates", "Catalog", "Mapped") below the Potential Matches section; client-side cluster pagination (10 clusters/page per section); each section paginates independently; pages reset when the search filter changes or a mutation succeeds; search bar filters the active tab's content and clears on tab switch
 - Shared i18n keys added under `"common"`: `prevPage`, `nextPage`, `pageInfo`
 
 #### 9.4 Route-Level Lazy Loading ✅ Complete

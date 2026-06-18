@@ -514,7 +514,12 @@
     "vendorDeleted": "Vendor eliminado. Las transacciones afectadas reaparecerán en el próximo escaneo.",
     "vendorMappingRemoved": "Mapeo eliminado. Las transacciones con este nombre reaparecerán en el próximo escaneo.",
     "receiptLoadError": "No se pudo cargar la imagen del recibo.",
-    "unknownDate": "Fecha desconocida"
+    "unknownDate": "Fecha desconocida",
+    "tabCandidates": "Nuevos candidatos",
+    "tabCatalog": "Catálogo",
+    "tabMapped": "Mapeados",
+    "filterCatalog": "Filtrar catálogo…",
+    "filterMapped": "Filtrar mapeos…"
   },
   "processedImages": {
     "eyebrow": "Recibos subidos",

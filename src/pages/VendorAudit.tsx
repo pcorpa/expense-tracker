@@ -325,6 +325,7 @@ export function VendorAudit() {
 
   // ── search + pagination ───────────────────────────────────────────────────
 
+  const [activeTab, setActiveTab] = useState<"candidates" | "catalog" | "mapped">("candidates");
   const [auditSearch, setAuditSearch] = useState("");
   const [potentialPage, setPotentialPage] = useState(0);
   const [newPage, setNewPage] = useState(0);
@@ -426,6 +427,22 @@ export function VendorAudit() {
       : newCandidateClusters,
   [newCandidateClusters, auditSearch]);
 
+  const visibleVendors = useMemo(() => {
+    const vendors = vendorsQuery.data ?? [];
+    if (!auditSearch.trim()) return vendors;
+    return vendors.filter((v) => v.canonical_name.toLowerCase().includes(auditSearch.toLowerCase()));
+  }, [vendorsQuery.data, auditSearch]);
+
+  const visibleMappings = useMemo(() => {
+    const mappings = rawMappingsQuery.data ?? [];
+    if (!auditSearch.trim()) return mappings;
+    const q = auditSearch.toLowerCase();
+    return mappings.filter((m) =>
+      m.raw_name.toLowerCase().includes(q) ||
+      (vendorsById.get(m.vendor_id)?.canonical_name ?? "").toLowerCase().includes(q)
+    );
+  }, [rawMappingsQuery.data, auditSearch, vendorsById]);
+
   const pagedPotential = visiblePotential.slice(potentialPage * CLUSTERS_PER_PAGE, (potentialPage + 1) * CLUSTERS_PER_PAGE);
   const totalPotentialPages = Math.ceil(visiblePotential.length / CLUSTERS_PER_PAGE);
   const pagedNew = visibleNew.slice(newPage * CLUSTERS_PER_PAGE, (newPage + 1) * CLUSTERS_PER_PAGE);
@@ -481,25 +498,24 @@ export function VendorAudit() {
         </div>
       )}
 
-      {/* ── Two-panel grid ──────────────────────────────────────────────── */}
+      {/* ── Audit content ──────────────────────────────────────────────── */}
       {!isLoading && !isMigrationNeeded && (
-        <div className="audit-layout" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 28, alignItems: "start" }}>
+        <div>
 
-          {/* ── LEFT: audit queue ──────────────────────────────────────── */}
-          <div>
-
-            {/* Search */}
-            {totalPending > 0 && (
-              <div style={{ position: "relative", marginBottom: 20 }}>
-                <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
-                <input
-                  value={auditSearch}
-                  onChange={(e) => setAuditSearch(e.target.value)}
-                  placeholder={t("audit.filterRaw")}
-                  style={{ ...inputStyle, paddingLeft: 32 }}
-                />
-              </div>
-            )}
+          {/* Search */}
+            <div style={{ position: "relative", marginBottom: 20 }}>
+              <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+              <input
+                value={auditSearch}
+                onChange={(e) => setAuditSearch(e.target.value)}
+                placeholder={
+                  activeTab === "catalog" ? t("audit.filterCatalog") :
+                  activeTab === "mapped" ? t("audit.filterMapped") :
+                  t("audit.filterRaw")
+                }
+                style={{ ...inputStyle, paddingLeft: 32 }}
+              />
+            </div>
 
       {/* ── Potential Matches ─────────────────────────────────────────── */}
       {visiblePotential.length > 0 && (
@@ -633,8 +649,39 @@ export function VendorAudit() {
         </section>
       )}
 
+            {/* Tab buttons */}
+            <div style={{ display: "flex", gap: 8, margin: "4px 0 20px", flexWrap: "wrap" }}>
+              {(["candidates", "catalog", "mapped"] as const).map((tab) => {
+                const isActive = activeTab === tab;
+                const labels = {
+                  candidates: t("audit.tabCandidates"),
+                  catalog: t("audit.tabCatalog"),
+                  mapped: t("audit.tabMapped"),
+                };
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => { setActiveTab(tab); setAuditSearch(""); }}
+                    style={{
+                      padding: "7px 18px",
+                      borderRadius: 20,
+                      border: `1px solid ${isActive ? "transparent" : "var(--border-color)"}`,
+                      background: isActive ? "var(--color-accent)" : "var(--bg-card)",
+                      color: isActive ? "#fff" : "var(--text-secondary)",
+                      cursor: "pointer",
+                      fontSize: "0.875rem",
+                      fontWeight: isActive ? 600 : 400,
+                      transition: "background 0.15s, color 0.15s",
+                    }}
+                  >
+                    {labels[tab]}
+                  </button>
+                );
+              })}
+            </div>
+
       {/* ── New Vendor Candidates ─────────────────────────────────────── */}
-      {visibleNew.length > 0 && (
+      {activeTab === "candidates" && visibleNew.length > 0 && (
         <section style={{ marginBottom: 36 }}>
           <SectionHeader icon={<Plus size={16} />} title={t("audit.newVendorSection")} subtitle={t("audit.newVendorDesc")} color="#f59e0b" />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -711,13 +758,13 @@ export function VendorAudit() {
         </section>
       )}
 
-      {auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
+      {activeTab === "candidates" && auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
         <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
           {t("audit.noSearchResults", { query: auditSearch })}
         </div>
       )}
 
-      {totalPending === 0 && !scanMutation.isPending && (
+      {activeTab === "candidates" && totalPending === 0 && !scanMutation.isPending && (
         <div style={{ textAlign: "center", padding: "56px 24px", background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border-color)" }}>
           <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: "0 auto 14px" }} />
           <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>{t("audit.allVendorsMapped")}</p>
@@ -725,17 +772,12 @@ export function VendorAudit() {
         </div>
       )}
 
-          </div>{/* end LEFT */}
-
-          {/* ── RIGHT: catalog + mappings (sticky) ─────────────────────── */}
-          <div style={{ position: "sticky", top: 24, maxHeight: "calc(100vh - 48px)", overflowY: "auto" }}>
-
       {/* ── Vendor Catalog ────────────────────────────────────────────── */}
-      {(vendorsQuery.data ?? []).length > 0 && (
+      {activeTab === "catalog" && visibleVendors.length > 0 && (
         <section style={{ marginBottom: 24 }}>
-          <SectionHeader icon={<Store size={16} />} title={t("audit.vendorCatalogSection")} subtitle={t("audit.vendorCatalogCount", { count: (vendorsQuery.data ?? []).length })} color="var(--text-muted)" />
+          <SectionHeader icon={<Store size={16} />} title={t("audit.vendorCatalogSection")} subtitle={t("audit.vendorCatalogCount", { count: visibleVendors.length })} color="var(--text-muted)" />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {(vendorsQuery.data ?? []).map((vendor) => {
+            {visibleVendors.map((vendor) => {
               const isEditing = editingVendorId === vendor.id;
               const isAdmin = isAdminOf(vendor.group_id);
               return (
@@ -802,7 +844,7 @@ export function VendorAudit() {
       )}
 
       {/* ── Confirmed Mappings ───────────────────────────────────────── */}
-      {(rawMappingsQuery.data ?? []).length > 0 && (
+      {activeTab === "mapped" && visibleMappings.length > 0 && (
         <section>
           <SectionHeader
             icon={<CheckCircle2 size={16} />}
@@ -811,7 +853,7 @@ export function VendorAudit() {
             color="var(--color-success)"
           />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {(rawMappingsQuery.data ?? []).map((mapping) => {
+            {visibleMappings.map((mapping) => {
               const vendor = vendorsById.get(mapping.vendor_id);
               const isAdmin = isAdminOf(mapping.group_id);
               return (
@@ -844,7 +886,18 @@ export function VendorAudit() {
         </section>
       )}
 
-          </div>{/* end RIGHT */}
+      {activeTab === "catalog" && (vendorsQuery.data ?? []).length > 0 && visibleVendors.length === 0 && (
+        <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          {t("audit.noSearchResults", { query: auditSearch })}
+        </div>
+      )}
+
+      {activeTab === "mapped" && (rawMappingsQuery.data ?? []).length > 0 && visibleMappings.length === 0 && (
+        <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          {t("audit.noSearchResults", { query: auditSearch })}
+        </div>
+      )}
+
         </div>
       )}{/* end !isLoading && !isMigrationNeeded */}
 
@@ -884,10 +937,7 @@ export function VendorAudit() {
         </div>
       )}
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @media (max-width: 900px) { .audit-layout { grid-template-columns: 1fr !important; } }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

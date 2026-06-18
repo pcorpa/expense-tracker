@@ -344,6 +344,7 @@ export function ProductAudit() {
 
   // ── search + pagination ───────────────────────────────────────────────────
 
+  const [activeTab, setActiveTab] = useState<"candidates" | "catalog" | "mapped">("candidates");
   const [auditSearch, setAuditSearch] = useState("");
   const [potentialPage, setPotentialPage] = useState(0);
   const [newPage, setNewPage] = useState(0);
@@ -475,6 +476,21 @@ export function ProductAudit() {
       : newCandidateClusters,
   [newCandidateClusters, auditSearch]);
 
+  const visibleProducts = useMemo(() =>
+    auditSearch.trim()
+      ? allProducts.filter((p) => p.name.toLowerCase().includes(auditSearch.toLowerCase()))
+      : allProducts,
+  [allProducts, auditSearch]);
+
+  const visibleMappings = useMemo(() => {
+    if (!auditSearch.trim()) return allMappings;
+    const q = auditSearch.toLowerCase();
+    return allMappings.filter((m) =>
+      m.raw_name.toLowerCase().includes(q) ||
+      (productsById.get(m.product_id)?.name ?? "").toLowerCase().includes(q)
+    );
+  }, [allMappings, auditSearch, productsById]);
+
   const pagedPotential = visiblePotential.slice(potentialPage * CLUSTERS_PER_PAGE, (potentialPage + 1) * CLUSTERS_PER_PAGE);
   const totalPotentialPages = Math.ceil(visiblePotential.length / CLUSTERS_PER_PAGE);
   const pagedNew = visibleNew.slice(newPage * CLUSTERS_PER_PAGE, (newPage + 1) * CLUSTERS_PER_PAGE);
@@ -534,24 +550,24 @@ export function ProductAudit() {
         </div>
       )}
 
-      {/* ── Two-panel grid ──────────────────────────────────────────────── */}
+      {/* ── Audit content ──────────────────────────────────────────────── */}
       {!isLoading && !isMigrationNeeded && (
-        <div className="audit-layout" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 28, alignItems: "start" }}>
+        <div>
 
-          {/* ── LEFT: audit queue ──────────────────────────────────────── */}
-          <div>
-            {/* Search */}
-            {totalPending > 0 && (
-              <div style={{ position: "relative", marginBottom: 20 }}>
-                <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
-                <input
-                  value={auditSearch}
-                  onChange={(e) => setAuditSearch(e.target.value)}
-                  placeholder={t("audit.filterRaw")}
-                  style={{ ...inputStyle, paddingLeft: 32 }}
-                />
-              </div>
-            )}
+          {/* Search */}
+            <div style={{ position: "relative", marginBottom: 20 }}>
+              <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+              <input
+                value={auditSearch}
+                onChange={(e) => setAuditSearch(e.target.value)}
+                placeholder={
+                  activeTab === "catalog" ? t("audit.filterCatalog") :
+                  activeTab === "mapped" ? t("audit.filterMapped") :
+                  t("audit.filterRaw")
+                }
+                style={{ ...inputStyle, paddingLeft: 32 }}
+              />
+            </div>
 
             {/* Potential Matches */}
             {visiblePotential.length > 0 && (
@@ -686,8 +702,39 @@ export function ProductAudit() {
               </section>
             )}
 
+            {/* Tab buttons */}
+            <div style={{ display: "flex", gap: 8, margin: "4px 0 20px", flexWrap: "wrap" }}>
+              {(["candidates", "catalog", "mapped"] as const).map((tab) => {
+                const isActive = activeTab === tab;
+                const labels = {
+                  candidates: t("audit.tabCandidates"),
+                  catalog: t("audit.tabCatalog"),
+                  mapped: t("audit.tabMapped"),
+                };
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => { setActiveTab(tab); setAuditSearch(""); }}
+                    style={{
+                      padding: "7px 18px",
+                      borderRadius: 20,
+                      border: `1px solid ${isActive ? "transparent" : "var(--border-color)"}`,
+                      background: isActive ? "var(--color-accent)" : "var(--bg-card)",
+                      color: isActive ? "#fff" : "var(--text-secondary)",
+                      cursor: "pointer",
+                      fontSize: "0.875rem",
+                      fontWeight: isActive ? 600 : 400,
+                      transition: "background 0.15s, color 0.15s",
+                    }}
+                  >
+                    {labels[tab]}
+                  </button>
+                );
+              })}
+            </div>
+
             {/* New Product Candidates */}
-            {visibleNew.length > 0 && (
+            {activeTab === "candidates" && visibleNew.length > 0 && (
               <section style={{ marginBottom: 36 }}>
                 <SectionHeader icon={<Plus size={16} />} title={t("audit.newCandidatesSection")} subtitle={t("audit.newCandidatesDesc")} color="#f59e0b" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -763,14 +810,14 @@ export function ProductAudit() {
             )}
 
             {/* No search results */}
-            {auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
+            {activeTab === "candidates" && auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
               <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
                 {t("audit.noSearchResults", { query: auditSearch })}
               </div>
             )}
 
             {/* Empty state */}
-            {totalPending === 0 && !scanMutation.isPending && (
+            {activeTab === "candidates" && totalPending === 0 && !scanMutation.isPending && (
               <div style={{ textAlign: "center", padding: "56px 24px", background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border-color)" }}>
                 <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: "0 auto 14px" }} />
                 <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>{t("audit.allMapped")}</p>
@@ -779,22 +826,18 @@ export function ProductAudit() {
                 </p>
               </div>
             )}
-          </div>
-
-          {/* ── RIGHT: catalog + mappings (sticky) ─────────────────────── */}
-          <div style={{ position: "sticky", top: 24, maxHeight: "calc(100vh - 48px)", overflowY: "auto" }}>
 
             {/* Product Catalog */}
-            {allProducts.length > 0 && (
+            {activeTab === "catalog" && visibleProducts.length > 0 && (
               <section style={{ marginBottom: 24 }}>
                 <SectionHeader
                   icon={<Package size={16} />}
                   title={t("audit.productCatalogSection")}
-                  subtitle={t("audit.productCatalogCount", { count: allProducts.length })}
+                  subtitle={t("audit.productCatalogCount", { count: visibleProducts.length })}
                   color="var(--text-muted)"
                 />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {allProducts.map((product) => {
+                  {visibleProducts.map((product) => {
                     const isEditing = editingProductId === product.id;
                     const isAdmin = isAdminOf(product.group_id ?? "");
                     const productMappings = mappingsByProductId.get(product.id) ?? [];
@@ -881,7 +924,7 @@ export function ProductAudit() {
             )}
 
             {/* Confirmed Mappings */}
-            {allMappings.length > 0 && (
+            {activeTab === "mapped" && visibleMappings.length > 0 && (
               <section>
                 <SectionHeader
                   icon={<CheckCircle2 size={16} />}
@@ -890,7 +933,7 @@ export function ProductAudit() {
                   color="var(--color-success)"
                 />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {allMappings.map((mapping) => {
+                  {visibleMappings.map((mapping) => {
                     const product = productsById.get(mapping.product_id);
                     const isAdmin = isAdminOf(mapping.group_id);
                     return (
@@ -923,13 +966,31 @@ export function ProductAudit() {
               </section>
             )}
 
-            {allProducts.length === 0 && allMappings.length === 0 && (
+            {activeTab === "catalog" && allProducts.length === 0 && (
               <div style={{ ...cardStyle, padding: "24px 16px", textAlign: "center" }}>
                 <Package size={28} color="var(--text-muted)" style={{ margin: "0 auto 10px" }} />
                 <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>{t("audit.noProductsYet")}</p>
               </div>
             )}
-          </div>
+
+            {activeTab === "catalog" && allProducts.length > 0 && visibleProducts.length === 0 && (
+              <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                {t("audit.noSearchResults", { query: auditSearch })}
+              </div>
+            )}
+
+            {activeTab === "mapped" && allMappings.length === 0 && (
+              <div style={{ ...cardStyle, padding: "24px 16px", textAlign: "center" }}>
+                <CheckCircle2 size={28} color="var(--text-muted)" style={{ margin: "0 auto 10px" }} />
+                <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>{t("audit.confirmedMappingsSection")}</p>
+              </div>
+            )}
+
+            {activeTab === "mapped" && allMappings.length > 0 && visibleMappings.length === 0 && (
+              <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                {t("audit.noSearchResults", { query: auditSearch })}
+              </div>
+            )}
 
         </div>
       )}
@@ -944,10 +1005,7 @@ export function ProductAudit() {
         {pendingConfirm?.body}
       </ConfirmModal>
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @media (max-width: 900px) { .audit-layout { grid-template-columns: 1fr !important; } }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
