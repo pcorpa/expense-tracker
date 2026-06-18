@@ -701,3 +701,5 @@ function RecurringCard({
     </div>
   );
 }
+
+export default RecurringExpenses;

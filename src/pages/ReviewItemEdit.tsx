@@ -250,3 +250,5 @@ export function ReviewItemEdit() {
     </main>
   );
 }
+
+export default ReviewItemEdit;

@@ -90,3 +90,5 @@ export function SignIn() {
     </main>
   );
 }
+
+export default SignIn;

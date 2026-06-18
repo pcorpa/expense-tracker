@@ -131,3 +131,5 @@ export function SignUp() {
     </main>
   );
 }
+
+export default SignUp;

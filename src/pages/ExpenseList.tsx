@@ -403,3 +403,5 @@ export function ExpenseList() {
     </main>
   );
 }
+
+export default ExpenseList;

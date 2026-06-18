@@ -932,3 +932,5 @@ export function EditRecurringExpense() {
     </div>
   );
 }
+
+export default EditRecurringExpense;

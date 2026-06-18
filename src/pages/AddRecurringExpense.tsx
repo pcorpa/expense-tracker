@@ -674,3 +674,5 @@ export function AddRecurringExpense() {
     </div>
   );
 }
+
+export default AddRecurringExpense;

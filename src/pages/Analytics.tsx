@@ -1041,3 +1041,5 @@ export function Analytics() {
     </main>
   );
 }
+
+export default Analytics;

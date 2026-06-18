@@ -490,3 +490,5 @@ export function TransactionEntry() {
     </main>
   );
 }
+
+export default TransactionEntry;

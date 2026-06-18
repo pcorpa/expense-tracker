@@ -112,3 +112,5 @@ export function Invitations() {
     </div>
   );
 }
+
+export default Invitations;

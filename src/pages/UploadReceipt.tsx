@@ -19,3 +19,5 @@ export function UploadReceipt() {
     </main>
   );
 }
+
+export default UploadReceipt;

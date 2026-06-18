@@ -372,3 +372,5 @@ export function ReviewQueue() {
     </main>
   );
 }
+
+export default ReviewQueue;

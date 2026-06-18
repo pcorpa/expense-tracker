@@ -175,3 +175,5 @@ export function ReviewTransactionEdit() {
     </main>
   );
 }
+
+export default ReviewTransactionEdit;

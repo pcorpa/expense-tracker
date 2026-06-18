@@ -101,3 +101,5 @@ export function Profile() {
     </main>
   );
 }
+
+export default Profile;

@@ -155,3 +155,5 @@ export function GroupManager() {
     </main>
   );
 }
+
+export default GroupManager;
