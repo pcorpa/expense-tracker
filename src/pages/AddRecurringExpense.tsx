@@ -2,15 +2,16 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, RefreshCw, Info } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
 import {
-  generateDueTransactions,
   countRetroactivePeriods,
   computeInitialLastGeneratedDate,
 } from "../lib/recurringExpenses";
+import { getAllGroups } from "../api/groups";
+import { createRecurringExpense } from "../api/recurringExpenses";
 import { ConfirmModal } from "../components/ConfirmModal";
-import type { Group, RecurringExpenseType, RecurringFrequency } from "../types";
+import type { RecurringExpenseType, RecurringFrequency } from "../types";
 
 const FIXED_CATEGORIES = [
   { value: "Comida", i18nKey: "categories.comida" },
@@ -60,7 +61,6 @@ export function AddRecurringExpense() {
     { value: "periodic_bill", emoji: "⚡", label: t("recurring.typePeriodicBill"), desc: t("recurring.typePeriodicBillDesc") },
   ];
 
-  const [groups, setGroups] = useState<Group[]>([]);
   const [groupId, setGroupId] = useState("");
   const [type, setType] = useState<RecurringExpenseType>("subscription");
   const [name, setName] = useState("");
@@ -82,20 +82,15 @@ export function AddRecurringExpense() {
   const [showErrors, setShowErrors] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
+  const { data: allGroups = [] } = useQuery({
+    queryKey: ["all-groups"],
+    queryFn: getAllGroups,
+    enabled: Boolean(user),
+  });
+
   useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("group_members")
-      .select("group_id, groups(id, name)")
-      .eq("user_id", user.id)
-      .then(({ data }) => {
-        const gs = (data ?? [])
-          .map((m: any) => m.groups)
-          .filter(Boolean) as Group[];
-        setGroups(gs);
-        if (gs.length > 0) setGroupId(gs[0].id);
-      });
-  }, [user]);
+    if (allGroups.length > 0 && !groupId) setGroupId(allGroups[0].id);
+  }, [allGroups]);
 
   const installmentAmount =
     type === "installment" &&
@@ -175,20 +170,14 @@ export function AddRecurringExpense() {
       }
     }
 
-    const { data: inserted, error: insertError } = await supabase
-      .from("recurring_expenses")
-      .insert(payload)
-      .select()
-      .single();
-
-    if (insertError) {
-      setError(insertError.message);
+    try {
+      await createRecurringExpense(payload);
+      navigate("/recurring");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
       setLoading(false);
-      return;
     }
-
-    await generateDueTransactions(inserted, supabase, new Date());
-    navigate("/recurring");
   }
 
   const twoColStyle: React.CSSProperties = {
@@ -291,14 +280,14 @@ export function AddRecurringExpense() {
           </div>
 
           {/* Group — only shown if user has multiple groups */}
-          {groups.length > 1 && (
+          {allGroups.length > 1 && (
             <label>
               {t("recurring.group")}
               <select
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
               >
-                {groups.map((g) => (
+                {allGroups.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name}
                   </option>
@@ -685,3 +674,5 @@ export function AddRecurringExpense() {
     </div>
   );
 }
+
+export default AddRecurringExpense;

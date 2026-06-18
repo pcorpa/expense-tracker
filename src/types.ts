@@ -115,7 +115,7 @@ export type Transaction = {
   recurring_expense_id: string | null;
   installment_number: number | null;
   transaction_items?: TransactionItem[];
-  receipts?: Pick<Receipt, "raw_ocr_json" | "status">;
+  receipts?: Pick<Receipt, "raw_ocr_json" | "status" | "image_url">;
   created_at: string;
   updated_at: string;
 };

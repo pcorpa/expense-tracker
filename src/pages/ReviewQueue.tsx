@@ -1,114 +1,71 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
-import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import type { Transaction } from "../types";
+import { getReviewTransactions, getFailedReceipts, retryReceipt, approveTransaction } from "../api/reviewQueue";
+import { deleteReceipt } from "../api/receipts";
+import type { ReviewTransaction } from "../api/reviewQueue";
 
-type ReviewItem = {
-  id: string;
-  transaction_id: string;
-  name: string;
-  category: string | null;
-  quantity: number;
-  unit_price: number;
-  item_total: number;
-  created_at: string;
-};
-
-type ReviewTransaction = Omit<Transaction, "transaction_items"> & {
-  transaction_items: ReviewItem[];
-  receipts?: { status: string }[];
-};
-
-type FailedReceipt = {
-  id: string;
-  created_at: string;
-  status: string;
-  image_url: string;
-};
+const PAGE_SIZE = 20;
 
 function receiptFileName(imageUrl: string): string {
   const base = imageUrl.split("/").pop() ?? imageUrl;
-  // storage path is `userId/timestamp_originalname` — strip the timestamp prefix
   return base.replace(/^\d+_/, "");
-}
-
-async function fetchReviewTransactions() {
-  const { data, error } = await supabase
-    .from("transactions")
-    .select("*, transaction_items(*), receipts(status)")
-    .eq("is_reviewed", false)
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-  return data as ReviewTransaction[];
-}
-
-async function fetchFailedReceipts() {
-  const { data, error } = await supabase
-    .from("receipts")
-    .select("id, created_at, status, image_url")
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-  return (data as FailedReceipt[]).filter(
-    (r) => r.status === "error" || r.status === "pending",
-  );
 }
 
 export function ReviewQueue() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const qc = useQueryClient();
+
+  const [page, setPage] = useState(0);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [approving, setApproving] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const query = useQuery({
-    queryKey: ["review-transactions", user?.id],
-    queryFn: fetchReviewTransactions,
+    queryKey: ["review-transactions", user?.id, page],
+    queryFn: () => getReviewTransactions(page, PAGE_SIZE),
     enabled: Boolean(user),
   });
 
   const failedQuery = useQuery({
     queryKey: ["failed-receipts", user?.id],
-    queryFn: fetchFailedReceipts,
+    queryFn: getFailedReceipts,
     enabled: Boolean(user),
   });
 
-  const transactions = useMemo(() => {
-    if (!query.data) return [];
-    return query.data;
-  }, [query.data]);
+  const transactions: ReviewTransaction[] = query.data?.data ?? [];
+  const totalCount: number = query.data?.count ?? 0;
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   const handleRetry = async (receiptId: string) => {
     setRetrying(receiptId);
-    const { error } = await supabase.functions.invoke("process-receipts", {
-      body: { receipt_id: receiptId },
-    });
-    setRetrying(null);
-    if (error) {
-      window.alert(`Retry failed: ${error.message}`);
-      return;
+    try {
+      await retryReceipt(receiptId);
+      failedQuery.refetch();
+      setPage(0);
+      qc.invalidateQueries({ queryKey: ["review-transactions"] });
+    } catch (err) {
+      window.alert(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    failedQuery.refetch();
-    query.refetch();
+    setRetrying(null);
   };
 
   const handleDelete = async (receiptId: string) => {
     setDeleting(receiptId);
     setConfirmDelete(null);
-    const { error } = await supabase.from("receipts").delete().eq("id", receiptId);
-    setDeleting(null);
-    if (error) {
-      window.alert(`Delete failed: ${error.message}`);
-      return;
+    try {
+      await deleteReceipt(receiptId);
+      failedQuery.refetch();
+    } catch (err) {
+      window.alert(`Delete failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    failedQuery.refetch();
+    setDeleting(null);
   };
 
   const handleApprove = async (transaction: ReviewTransaction) => {
@@ -136,33 +93,25 @@ export function ReviewQueue() {
     setApproving(transaction.id);
     const subtotal = items.reduce((sum, item) => sum + item.item_total, 0);
 
-    const [transactionResult, receiptResult] = await Promise.all([
-      supabase
-        .from("transactions")
-        .update({ total_amount: subtotal, is_reviewed: true })
-        .eq("id", transaction.id)
-        .select("id"),
-      transaction.receipt_id
-        ? supabase
-            .from("receipts")
-            .update({ status: "completed" })
-            .eq("id", transaction.receipt_id)
-        : Promise.resolve({ data: null, error: null }),
-    ]);
+    try {
+      const result = await approveTransaction({
+        transactionId: transaction.id,
+        receiptId: transaction.receipt_id,
+        subtotal,
+      });
 
-    setApproving(null);
+      if (!result.transactionUpdated) {
+        window.alert(t("review.approvePermissionError"));
+        return;
+      }
 
-    if (transactionResult.error || receiptResult.error) {
+      setPage(0);
+      qc.invalidateQueries({ queryKey: ["review-transactions"] });
+    } catch {
       window.alert(t("review.approveFailed"));
-      return;
+    } finally {
+      setApproving(null);
     }
-
-    if (!transactionResult.data || transactionResult.data.length === 0) {
-      window.alert(t("review.approvePermissionError"));
-      return;
-    }
-
-    query.refetch();
   };
 
   if (query.isLoading) {
@@ -324,6 +273,31 @@ export function ReviewQueue() {
             </article>
           );
         })}
+
+        {totalPages > 1 && (
+          <div className="tx-pagination">
+            <button
+              type="button"
+              className="button button--secondary"
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              {t("common.prevPage")}
+            </button>
+            <span className="tx-pagination__info">
+              {t("common.pageInfo", { current: page + 1, total: totalPages })}
+            </span>
+            <button
+              type="button"
+              className="button button--secondary"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              {t("common.nextPage")}
+            </button>
+          </div>
+        )}
+
         {!!failedQuery.data?.length && (
           <>
             <h2 style={{ marginTop: 32, fontSize: "1rem", color: "var(--text-muted)" }}>
@@ -398,3 +372,5 @@ export function ReviewQueue() {
     </main>
   );
 }
+
+export default ReviewQueue;

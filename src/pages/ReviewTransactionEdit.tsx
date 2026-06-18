@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { supabase } from "../lib/supabase";
+import { getTransactionHeader, updateTransactionHeader } from "../api/transactions";
 
 type FormState = {
   vendor_or_source: string;
@@ -14,6 +14,8 @@ type FormState = {
 export function ReviewTransactionEdit() {
   const { transactionId } = useParams<{ transactionId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from: string = (location.state as any)?.from ?? "/review";
   const { t } = useTranslation();
 
   const [form, setForm] = useState<FormState>({
@@ -28,20 +30,7 @@ export function ReviewTransactionEdit() {
 
   const transactionQuery = useQuery({
     queryKey: ["transaction-header", transactionId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("vendor_or_source, date, type, total_amount")
-        .eq("id", transactionId!)
-        .single();
-      if (error) throw error;
-      return data as {
-        vendor_or_source: string | null;
-        date: string | null;
-        type: "income" | "expense";
-        total_amount: number | null;
-      };
-    },
+    queryFn: () => getTransactionHeader(transactionId!),
     enabled: Boolean(transactionId),
   });
 
@@ -66,24 +55,20 @@ export function ReviewTransactionEdit() {
     setSaving(true);
     setError(null);
 
-    const { error: saveError } = await supabase
-      .from("transactions")
-      .update({
+    try {
+      await updateTransactionHeader({
+        id: transactionId!,
         vendor_or_source: form.vendor_or_source || null,
         date: form.date || null,
         type: form.type,
         total_amount: form.total_amount !== "" ? Number(form.total_amount) : null,
-      })
-      .eq("id", transactionId!);
-
-    setSaving(false);
-
-    if (saveError) {
-      setError(saveError.message);
-      return;
+      });
+      navigate(from);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
-
-    navigate("/review");
   };
 
   const isLoading = !initialized && !transactionQuery.isError && transactionQuery.isLoading;
@@ -94,10 +79,10 @@ export function ReviewTransactionEdit() {
         <button
           type="button"
           className="button button--secondary button--small"
-          onClick={() => navigate("/review")}
+          onClick={() => navigate(from)}
           style={{ marginBottom: 24 }}
         >
-          ← {t("reviewEdit.back")}
+          ← {from === "/review" ? t("reviewEdit.back") : t("common.back")}
         </button>
         <p className="eyebrow">{t("reviewEdit.editTransaction")}</p>
         <h1>{form.vendor_or_source || t("reviewEdit.defaultTitle")}</h1>
@@ -172,7 +157,7 @@ export function ReviewTransactionEdit() {
             <button
               type="button"
               className="button button--secondary"
-              onClick={() => navigate("/review")}
+              onClick={() => navigate(from)}
             >
               {t("common.cancel")}
             </button>
@@ -190,3 +175,5 @@ export function ReviewTransactionEdit() {
     </main>
   );
 }
+
+export default ReviewTransactionEdit;

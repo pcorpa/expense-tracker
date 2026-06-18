@@ -20,7 +20,8 @@
     "invites_one": "{{count}} invite",
     "invites_other": "{{count}} invites",
     "audit": "{{count}} audit",
-    "vendor": "{{count}} vendor"
+    "vendor": "{{count}} vendor",
+    "pricing": "Pricing"
   },
   "common": {
     "loading": "Loading session...",
@@ -34,7 +35,10 @@
     "close": "Close",
     "signedInAs": "Signed in as",
     "required": "Required",
-    "personalGroup": "Personal (just me)"
+    "personalGroup": "Personal (just me)",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "pageInfo": "Page {{current}} of {{total}}"
   },
   "auth": {
     "signInTitle": "Sign in",
@@ -114,7 +118,14 @@
     "income": "Income",
     "unnamedItem": "Unnamed item",
     "clear": "Clear",
-    "done": "Done"
+    "done": "Done",
+    "deleteTitle": "Delete transaction?",
+    "deleteBody": "This will permanently delete \"{{name}}\" and all its items. This cannot be undone.",
+    "deleting": "Deleting…",
+    "viewReceipt": "View receipt image",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "pageInfo": "Page {{current}} of {{total}}"
   },
   "review": {
     "eyebrow": "Human review",
@@ -504,7 +515,12 @@
     "vendorDeleted": "Vendor deleted. Affected transactions will re-appear on next scan.",
     "vendorMappingRemoved": "Mapping removed. Transactions with this raw name will re-appear on next scan.",
     "receiptLoadError": "Could not load receipt image.",
-    "unknownDate": "Unknown date"
+    "unknownDate": "Unknown date",
+    "tabCandidates": "New Candidates",
+    "tabCatalog": "Catalog",
+    "tabMapped": "Mapped",
+    "filterCatalog": "Filter catalog…",
+    "filterMapped": "Filter mappings…"
   },
   "processedImages": {
     "eyebrow": "Uploaded receipts",
@@ -608,5 +624,62 @@
     "downloadJSON": "Download JSON ({{count}} transactions)",
     "csvDesc": "transaction_id, date, vendor, category, item_name, quantity, unit_price, item_total, currency — one row per item.",
     "jsonDesc": "Nested structure with transaction header and items array, ready for R, Python, or any statistical environment."
+  },
+  "landing": {
+    "eyebrow": "AI-powered expense tracking",
+    "headline": "Take control of your finances",
+    "sub": "Scan receipts, track spending, and get insights — all in one place. Works for individuals and groups.",
+    "getStarted": "Get started",
+    "featuresTitle": "Everything you need",
+    "bottomCtaTitle": "Ready to get started?",
+    "bottomCtaSub": "Create your free account and start tracking expenses in minutes.",
+    "features": {
+      "receiptScan": {
+        "title": "AI receipt scanning",
+        "desc": "Upload a photo — Gemini 2.5 Flash extracts store, date, items, and totals automatically."
+      },
+      "analytics": {
+        "title": "7-tab analytics",
+        "desc": "Overview, Trends, Products, Anomalies, Pareto, Groups, and CSV/JSON export."
+      },
+      "groups": {
+        "title": "Group spending",
+        "desc": "Share expenses with family or housemates. See each member's contribution at a glance."
+      },
+      "recurring": {
+        "title": "Recurring expenses",
+        "desc": "Track subscriptions, installment plans, and periodic bills. Auto-generated on due dates."
+      },
+      "shoppingList": {
+        "title": "Smart shopping list",
+        "desc": "Monthly list derived from your purchase history — never forget what you usually buy."
+      },
+      "normalization": {
+        "title": "Vendor & product audit",
+        "desc": "Fuzzy-matching pipeline keeps your data clean. Review and confirm mappings once, never again."
+      }
+    }
+  },
+  "pricing": {
+    "eyebrow": "Simple pricing",
+    "headline": "Free while in beta",
+    "sub": "All features are available at no cost during the beta period.",
+    "freeFeatures": [
+      "Unlimited receipt scans",
+      "AI-powered extraction (Gemini 2.5 Flash)",
+      "7-tab analytics dashboard",
+      "Groups & shared expenses",
+      "Recurring expenses",
+      "Smart shopping list",
+      "Vendor & product normalization",
+      "Dark / light theme",
+      "Spanish & English UI"
+    ],
+    "free": {
+      "name": "Free beta",
+      "price": "$0",
+      "desc": "Full access during the beta period. No credit card required.",
+      "cta": "Create free account"
+    }
   }
 }

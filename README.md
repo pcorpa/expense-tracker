@@ -26,7 +26,7 @@ A mobile-first, AI-powered expense tracker with receipt scanning, group manageme
 - **Admin gating** — only group admins can add, edit, or delete vendors and vendor mappings; members have read-only access
 - **Recurring expenses** — register subscriptions (Netflix, gym), installment plans (credit card purchases split across N months), and periodic bills (electricity, water); each template auto-generates approved transactions on their due dates when the Recurrentes page is opened; installment cards show a live progress bar (e.g. "5/12 cuotas — 42%") and auto-complete when all installments are paid; cancel, edit, or delete (template only or template + all linked transactions); custom category per recurring expense; KPI summary row showing monthly fixed total, active count, and installments in progress
 - **Shopping List** — monthly smart shopping list derived from purchase history; shows canonical product names with average quantity per purchase; cold-start fallback for new groups with no history
-- **Product catalog management** — admins can rename and delete canonical products inline from the Product Audit page; persistent confirmed mappings stored in `product_raw_mappings` (mirrors vendor raw mappings); deleting a mapping resets auto-matched items to the scan queue so they re-surface on the next scan; two-panel audit layout (left: review queue, right: sticky catalog + confirmed mappings)
+- **Product catalog management** — admins can rename and delete canonical products inline from the Product Audit page; persistent confirmed mappings stored in `product_raw_mappings` (mirrors vendor raw mappings); deleting a mapping resets auto-matched items to the scan queue so they re-surface on the next scan; single-column audit layout with tab navigation (New Candidates / Catalog / Mapped); search bar scopes to the active tab and clears on tab switch
 - **Dark / light theme** — toggle in the nav bar, persisted to `localStorage`; full CSS variable–based theming applied app-wide
 - **Bilingual UI (ES / EN)** — full Spanish and English translation via `react-i18next`; language switch available in the nav bar
 - **Processed images** — browsable history of all receipt images uploaded by the user
@@ -56,7 +56,9 @@ A mobile-first, AI-powered expense tracker with receipt scanning, group manageme
 ```
 src/
   pages/
-    Home.tsx                  landing/dashboard
+    LandingPage.tsx           public marketing landing page (route: /)
+    PricingPage.tsx           public pricing page (route: /pricing)
+    Home.tsx                  authenticated dashboard (route: /dashboard)
     SignIn.tsx / SignUp.tsx
     UploadReceipt.tsx          receipt upload → Supabase Storage → process-receipts Edge Fn
     TransactionEntry.tsx       manual expense entry with product autocomplete + math validation
@@ -67,8 +69,8 @@ src/
     GroupManager.tsx           group creation and member invitations
     Invitations.tsx            pending invitations with Accept/Decline UI
     Analytics.tsx              7-tab analytics dashboard (Recharts); Pareto tab has canonical/raw vendor toggle
-    ProductAudit.tsx           two-panel audit: left = fuzzy-match review queue; right = product catalog + confirmed mappings
-    VendorAudit.tsx            vendor normalization — review queue, vendor catalog, confirmed mappings
+    ProductAudit.tsx           audit: potential matches always visible; tab nav (New Candidates / Catalog / Mapped); search scopes to active tab
+    VendorAudit.tsx            vendor normalization — same tab nav as ProductAudit; review queue, vendor catalog, confirmed mappings
     RecurringExpenses.tsx      recurring expense list with KPI summary, type-colored cards, installment progress
     AddRecurringExpense.tsx    create subscriptions, installment plans, and periodic bills
     EditRecurringExpense.tsx   edit, cancel, or delete recurring expenses
@@ -77,6 +79,8 @@ src/
     Profile.tsx                user profile
 
   components/
+    AppLayout.tsx              authenticated app layout — sidebar nav + Outlet + ProtectedRoute gate
+    PublicLayout.tsx           public marketing layout — top header + Outlet (no app sidebar)
     NavBar.tsx                 desktop sidebar nav with badge counts and theme/language toggles
     MobileMenu.tsx             mobile drawer nav with badge counts
     ConfirmModal.tsx           reusable in-app confirmation dialog (replaces browser confirm())
@@ -84,13 +88,26 @@ src/
     PublicOnlyRoute.tsx
     UploadReceiptPanel.tsx     reusable receipt upload panel component
 
+  api/
+    groups.ts           getAllGroups, getGroups, inviteMember
+    transactions.ts     getTransactions, submitTransaction, getTransactionHeader, updateTransactionHeader, upsertTransactionItem, deleteTransaction
+    products.ts         getProducts, getProductSuggestions, product audit RPCs
+    vendors.ts          getVendors, vendor audit + mapping RPCs
+    receipts.ts         getReceipts, uploadReceiptFile, createReceiptRecord, invokeProcessReceipts, markReceiptError, deleteReceipt
+    reviewQueue.ts      getReviewTransactions, getFailedReceipts, retryReceipt, approveTransaction
+    profiles.ts         getProfile, upsertProfile
+    invitations.ts      getInvitations, respondToInvitation, getPendingInvitationsCount
+    analytics.ts        getAnalyticsData
+    shoppingList.ts     getShoppingListData
+    recurringExpenses.ts  getRecurringExpenses, createRecurringExpense, updateRecurringExpense, cancelRecurringExpense, deleteRecurringExpense, generateDueForAll
+
   lib/
     supabase.ts                Supabase client
     auth.tsx                   auth state context
     theme.tsx                  ThemeProvider + useTheme hook; dark/light toggle persisted to localStorage
     fuzzyMatch.ts              Fuse.js fuzzy matching + normalization pipeline (product items)
     fuzzyMatchVendor.ts        vendor matching — Fuse.js + 5-char token overlap fallback
-    recurringExpenses.ts       client-side generation logic for recurring expense templates
+    recurringExpenses.ts       client-side generation logic for recurring expense templates (utility; takes supabase as param)
     usePendingAuditCount.ts    TanStack Query hook — pending product audit count
     usePendingVendorCount.ts   TanStack Query hook — pending vendor audit count
     usePendingInvitationsCount.ts  TanStack Query hook — pending invitations count
@@ -253,3 +270,11 @@ These rules are enforced throughout and must not be relaxed:
 | Phase 6 — Vendor normalization (fuzzy matching, VendorAudit, persistent mappings, admin controls) | Complete |
 | Phase 7 — Recurring expenses (subscriptions, installments, periodic bills; auto-generation; cancel/delete) | Complete |
 | Phase 8 — Shopping list, product admin controls, dark/light theme, ES/EN bilingual support | Complete |
+| Phase 9.1 — Database indexes for transactions and group_members | Complete |
+| Phase 9.2 — Server-side pagination for ExpenseList (50 rows/page) | Complete |
+| Phase 9.3 — Pagination for ReviewQueue (server-side, 20/page) and VendorAudit/ProductAudit (client cluster, 10/page) | Complete |
+| Phase 9.4 — Route-level lazy loading: 19 page chunks via React.lazy + Suspense | Complete |
+| Phase 9.5 — API service layer (`src/api/`) for core data domains | Complete |
+| Phase 9.6 — Complete API layer: all remaining pages migrated to `src/api/` + React Query | Complete |
+| Phase 9.7 — Bundle analysis (`rollup-plugin-visualizer`; heic2any + Recharts are largest chunks, both already lazy-loaded) | Complete |
+| Phase 10 — Public marketing shell: landing page + pricing page; React Router layout route split (`PublicLayout` / `AppLayout`); dashboard moved to `/dashboard` | Complete |

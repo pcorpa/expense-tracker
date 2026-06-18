@@ -17,9 +17,11 @@ import {
 } from "recharts";
 import { Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { supabase } from "../lib/supabase";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import type { Transaction, TransactionItem, Vendor } from "../types";
+import { getAllGroups } from "../api/groups";
+import { getAnalyticsData } from "../api/analytics";
+import type { TransactionItem, Vendor } from "../types";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Comida: "#3b82f6",
@@ -66,73 +68,25 @@ export function Analytics() {
   const { user } = useAuth();
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [profileMap, setProfileMap] = useState<
-    Record<string, { first_name: string | null; last_name: string | null; email: string }>
-  >({});
-  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendorGrouping, setVendorGrouping] = useState<"canonical" | "raw">("canonical");
   const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    if (!user) return;
-    fetchData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  const { data: allGroups = [] } = useQuery({
+    queryKey: ["all-groups"],
+    queryFn: getAllGroups,
+    enabled: Boolean(user),
+  });
+  const groupIds = allGroups.map((g) => g.id);
 
-  async function fetchData() {
-    setLoading(true);
-
-    const { data: memberships } = await supabase
-      .from("group_members")
-      .select("group_id")
-      .eq("user_id", user!.id);
-
-    if (!memberships?.length) {
-      setLoading(false);
-      return;
-    }
-
-    const groupIds = memberships.map((m) => m.group_id);
-
-    const [{ data: txData }, { data: memberRows }, { data: vendorData }] = await Promise.all([
-      supabase
-        .from("transactions")
-        .select("*, transaction_items(*)")
-        .in("group_id", groupIds)
-        .eq("is_reviewed", true)
-        .eq("type", "expense")
-        .order("date", { ascending: true }),
-      supabase
-        .from("group_members")
-        .select("user_id")
-        .in("group_id", groupIds),
-      supabase
-        .from("vendors")
-        .select("id, group_id, canonical_name, created_at")
-        .in("group_id", groupIds),
-    ]);
-
-    setTransactions(txData ?? []);
-    setVendors(vendorData ?? []);
-
-    // Fetch profiles separately — group_members.user_id → auth.users, not profiles directly
-    const userIds = [...new Set((memberRows ?? []).map((m) => m.user_id))];
-    if (userIds.length) {
-      const { data: profileRows } = await supabase
-        .from("profiles")
-        .select("id, first_name, last_name, email")
-        .in("id", userIds);
-      const map: typeof profileMap = {};
-      for (const p of profileRows ?? []) {
-        map[p.id] = { first_name: p.first_name, last_name: p.last_name, email: p.email };
-      }
-      setProfileMap(map);
-    }
-    setLoading(false);
-  }
+  const { data: analyticsData, isLoading: loading } = useQuery({
+    queryKey: ["analytics-data", groupIds],
+    queryFn: () => getAnalyticsData(groupIds),
+    enabled: groupIds.length > 0,
+  });
+  const transactions = analyticsData?.transactions ?? [];
+  const vendors = analyticsData?.vendors ?? [];
+  const profileMap = analyticsData?.profileMap ?? {};
 
   const allItems = useMemo<EnrichedItem[]>(
     () =>
@@ -355,7 +309,7 @@ export function Analytics() {
       .map(([userId, total]) => {
         const profile = profileMap[userId];
         const name = profile
-          ? `${profile.first_name ?? ""} ${profile.last_name ?? ""}`.trim() || profile.email
+          ? `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim() || profile.email
           : `${userId.slice(0, 8)}…`;
         return { name, total: Math.round(total * 100) / 100, userId };
       })
@@ -1087,3 +1041,5 @@ export function Analytics() {
     </main>
   );
 }
+
+export default Analytics;

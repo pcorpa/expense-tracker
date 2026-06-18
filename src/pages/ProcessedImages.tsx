@@ -1,47 +1,28 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import type { Receipt } from "../types";
+import { getReceipts, invokeProcessReceipts } from "../api/receipts";
 
 export function ProcessedImages() {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
-
-    setLoading(true);
-    supabase
-      .from("receipts")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        setLoading(false);
-        if (error) {
-          setMessage(error.message);
-          return;
-        }
-        setReceipts(data ?? []);
-      });
-  }, [user]);
+  const { data: receipts = [], isLoading } = useQuery({
+    queryKey: ["receipts", user?.id],
+    queryFn: () => getReceipts(user!.id),
+    enabled: Boolean(user),
+  });
 
   async function handleProcessNow(receiptId: string) {
     setMessage(t("processedImages.processingNow"));
-    const { error } = await supabase.functions.invoke("process-receipts", {
-      body: JSON.stringify({ receipt_id: receiptId }),
-    });
-
-    if (error) {
-      setMessage(error.message);
-      return;
+    try {
+      await invokeProcessReceipts({ receiptId });
+      setMessage(t("processedImages.processRequestSent"));
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
     }
-
-    setMessage(t("processedImages.processRequestSent"));
   }
 
   return (
@@ -56,8 +37,8 @@ export function ProcessedImages() {
 
       <div className="content-block">
         {message ? <div className="alert">{message}</div> : null}
-        {loading && <p>{t("processedImages.loading")}</p>}
-        {!loading && !receipts.length && (
+        {isLoading && <p>{t("processedImages.loading")}</p>}
+        {!isLoading && !receipts.length && (
           <p>{t("processedImages.empty")}</p>
         )}
 
@@ -85,3 +66,5 @@ export function ProcessedImages() {
     </main>
   );
 }
+
+export default ProcessedImages;

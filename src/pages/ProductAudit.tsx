@@ -18,10 +18,22 @@ import {
   Search,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "../lib/supabase";
+import {
+  getProductAuditItems,
+  getProducts,
+  getProductMappings,
+  runProductScan,
+  confirmProductMatch,
+  approveProductMapping,
+  renameProduct,
+  deleteProduct,
+  deleteProductMapping,
+  resetTransactionItemsToNewCandidate,
+} from "../api/products";
+import { getGroupRoles } from "../api/groups";
 import { runNormalizationPipeline } from "../lib/fuzzyMatch";
 import { ConfirmModal } from "../components/ConfirmModal";
-import type { MappingStatus, Product, ProductRawMapping } from "../types";
+import type { MappingStatus, Product } from "../types";
 
 const CATEGORIES = [
   "Comida",
@@ -81,153 +93,6 @@ type Cluster = {
   category: string;
   similarity?: number;
 };
-
-// ─── data fetchers ────────────────────────────────────────────────────────────
-
-async function fetchAuditItems(): Promise<AuditItem[]> {
-  const { data, error } = await supabase
-    .from("transaction_items")
-    .select("id, name, category, quantity, unit_price, item_total, mapping_status, suggested_product_id, transactions!inner(group_id)")
-    .in("mapping_status", ["needs_mapping_review", "new_product_candidate"])
-    .order("name");
-  if (error) throw Object.assign(new Error(error.message), { code: (error as any).code });
-  return data as unknown as AuditItem[];
-}
-
-async function fetchAllProducts(): Promise<Product[]> {
-  const { data, error } = await supabase
-    .from("products")
-    .select("id, name, category, group_id, created_at")
-    .order("name");
-  if (error) {
-    console.error("[ProductAudit] fetchAllProducts ERROR:", { message: error.message });
-    return [];
-  }
-  return data as Product[];
-}
-
-async function fetchRawMappings(): Promise<ProductRawMapping[]> {
-  const { data, error } = await supabase
-    .from("product_raw_mappings")
-    .select("id, group_id, raw_name, product_id, created_at")
-    .order("raw_name");
-  if (error) return [];
-  return data as ProductRawMapping[];
-}
-
-async function fetchMyGroupRoles(): Promise<Record<string, "admin" | "member">> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return {};
-  const { data } = await supabase
-    .from("group_members")
-    .select("group_id, role")
-    .eq("user_id", user.id);
-  const map: Record<string, "admin" | "member"> = {};
-  for (const row of data ?? []) map[row.group_id] = row.role;
-  return map;
-}
-
-// ─── scan pipeline ────────────────────────────────────────────────────────────
-
-async function runScan(): Promise<{ scanned: number; autoMatched: number; needsReview: number; newCandidates: number }> {
-  const { data: rawItemsRaw, error: itemsErr } = await supabase
-    .from("transaction_items")
-    .select("id, name, transactions!inner(group_id)")
-    .is("mapping_status", null)
-    .is("product_id", null)
-    .neq("name", "Unknown");
-
-  if (itemsErr) throw itemsErr;
-  if (!rawItemsRaw || rawItemsRaw.length === 0) return { scanned: 0, autoMatched: 0, needsReview: 0, newCandidates: 0 };
-
-  const rawItems = rawItemsRaw as unknown as Array<{ id: string; name: string; transactions: { group_id: string } }>;
-  const groupIds = [...new Set(rawItems.map((i) => i.transactions.group_id))];
-
-  const [{ data: products, error: productsErr }, { data: rawMappings }] = await Promise.all([
-    supabase.from("products").select("id, name, category, group_id, created_at"),
-    supabase.from("product_raw_mappings").select("group_id, raw_name, product_id").in("group_id", groupIds),
-  ]);
-
-  if (productsErr) throw productsErr;
-
-  // Build confirmed map: "groupId|rawNameLower" → productId
-  const confirmedMap = new Map<string, string>();
-  for (const m of rawMappings ?? []) {
-    confirmedMap.set(`${m.group_id}|${m.raw_name.toLowerCase().trim()}`, m.product_id);
-  }
-
-  const autoMatchedByProduct = new Map<string, string[]>();
-  const reviewByProduct = new Map<string, string[]>();
-  const newCandidateIds: string[] = [];
-  const fuzzyItems: Array<{ id: string; name: string }> = [];
-
-  // Step 1: exact confirmed matches
-  for (const item of rawItems) {
-    const key = `${item.transactions.group_id}|${item.name.toLowerCase().trim()}`;
-    const knownProductId = confirmedMap.get(key);
-    if (knownProductId) {
-      const ids = autoMatchedByProduct.get(knownProductId) ?? [];
-      ids.push(item.id);
-      autoMatchedByProduct.set(knownProductId, ids);
-    } else {
-      fuzzyItems.push({ id: item.id, name: item.name });
-    }
-  }
-
-  // Step 2: fuzzy-match the rest
-  const results = runNormalizationPipeline(fuzzyItems, (products ?? []) as Product[]);
-
-  for (const r of results) {
-    if (r.status === "auto_matched" && r.suggestedProductId) {
-      const ids = autoMatchedByProduct.get(r.suggestedProductId) ?? [];
-      ids.push(r.id);
-      autoMatchedByProduct.set(r.suggestedProductId, ids);
-    } else if (r.status === "needs_mapping_review" && r.suggestedProductId) {
-      const ids = reviewByProduct.get(r.suggestedProductId) ?? [];
-      ids.push(r.id);
-      reviewByProduct.set(r.suggestedProductId, ids);
-    } else {
-      newCandidateIds.push(r.id);
-    }
-  }
-
-  const updates: PromiseLike<unknown>[] = [];
-
-  for (const [productId, ids] of autoMatchedByProduct) {
-    updates.push(
-      supabase
-        .from("transaction_items")
-        .update({ product_id: productId, mapping_status: "auto_matched", suggested_product_id: null })
-        .in("id", ids),
-    );
-  }
-  for (const [productId, ids] of reviewByProduct) {
-    updates.push(
-      supabase
-        .from("transaction_items")
-        .update({ mapping_status: "needs_mapping_review", suggested_product_id: productId })
-        .in("id", ids),
-    );
-  }
-  if (newCandidateIds.length > 0) {
-    updates.push(
-      supabase
-        .from("transaction_items")
-        .update({ mapping_status: "new_product_candidate" })
-        .in("id", newCandidateIds),
-    );
-  }
-
-  await Promise.all(updates);
-
-  const totalAutoMatched = [...autoMatchedByProduct.values()].reduce((s, ids) => s + ids.length, 0);
-  return {
-    scanned: rawItems.length,
-    autoMatched: totalAutoMatched,
-    needsReview: [...reviewByProduct.values()].reduce((s, ids) => s + ids.length, 0),
-    newCandidates: newCandidateIds.length,
-  };
-}
 
 // ─── combobox component ────────────────────────────────────────────────────────
 
@@ -335,16 +200,18 @@ function ProductCombobox({
   );
 }
 
+const CLUSTERS_PER_PAGE = 10;
+
 // ─── component ────────────────────────────────────────────────────────────────
 
 export function ProductAudit() {
   const qc = useQueryClient();
   const { t } = useTranslation();
 
-  const auditQuery = useQuery({ queryKey: ["audit-items"], queryFn: fetchAuditItems, retry: false });
-  const productsQuery = useQuery({ queryKey: ["all-products"], queryFn: fetchAllProducts, retry: false });
-  const rawMappingsQuery = useQuery({ queryKey: ["product-raw-mappings"], queryFn: fetchRawMappings, retry: false });
-  const rolesQuery = useQuery({ queryKey: ["my-group-roles"], queryFn: fetchMyGroupRoles });
+  const auditQuery = useQuery({ queryKey: ["audit-items"], queryFn: getProductAuditItems, retry: false });
+  const productsQuery = useQuery({ queryKey: ["all-products"], queryFn: getProducts, retry: false });
+  const rawMappingsQuery = useQuery({ queryKey: ["product-raw-mappings"], queryFn: getProductMappings, retry: false });
+  const rolesQuery = useQuery({ queryKey: ["my-group-roles"], queryFn: getGroupRoles });
 
   const auditError = auditQuery.error as (Error & { code?: string }) | null;
   const isMigrationNeeded =
@@ -368,7 +235,7 @@ export function ProductAudit() {
   // ── scan ──────────────────────────────────────────────────────────────────
 
   const scanMutation = useMutation({
-    mutationFn: runScan,
+    mutationFn: runProductScan,
     onSuccess: (stats) => {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       qc.invalidateQueries({ queryKey: ["all-products"] });
@@ -387,18 +254,13 @@ export function ProductAudit() {
   // ── confirm potential match ───────────────────────────────────────────────
 
   const confirmMutation = useMutation({
-    mutationFn: async ({ rawName, productId, groupId }: { rawName: string; productId: string; groupId: string }) => {
-      const { error } = await supabase.rpc("confirm_product_match", {
-        p_raw_name: rawName,
-        p_product_id: productId,
-        p_group_id: groupId,
-      });
-      if (error) throw error;
-    },
+    mutationFn: ({ rawName, productId, groupId }: { rawName: string; productId: string; groupId: string }) =>
+      confirmProductMatch({ rawName, productId, groupId }),
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       qc.invalidateQueries({ queryKey: ["product-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-audit-count"] });
+      setPotentialPage(0); setNewPage(0);
       toast.success(`"${rawName}" confirmed.`);
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
@@ -407,15 +269,11 @@ export function ProductAudit() {
   // ── treat as new ─────────────────────────────────────────────────────────
 
   const treatAsNewMutation = useMutation({
-    mutationFn: async ({ ids }: { ids: string[]; rawName: string }) => {
-      const { error } = await supabase
-        .from("transaction_items")
-        .update({ mapping_status: "new_product_candidate", suggested_product_id: null })
-        .in("id", ids);
-      if (error) throw error;
-    },
+    mutationFn: ({ ids }: { ids: string[]; rawName: string }) =>
+      resetTransactionItemsToNewCandidate(ids),
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
+      setPotentialPage(0); setNewPage(0);
       toast.info(`"${rawName}" moved to New Candidates.`);
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
@@ -424,41 +282,22 @@ export function ProductAudit() {
   // ── approve / map to existing product ────────────────────────────────────
 
   const approveMutation = useMutation({
-    mutationFn: async ({
-      rawName,
-      canonicalName,
-      category,
-      groupId,
-      existingProductId,
-    }: {
+    mutationFn: ({ rawName, canonicalName, category, groupId, existingProductId }: {
       rawName: string;
       canonicalName: string;
       category: string;
       groupId: string;
       existingProductId: string | null;
-    }) => {
-      if (existingProductId) {
-        const { error } = await supabase.rpc("confirm_product_match", {
-          p_raw_name: rawName,
-          p_product_id: existingProductId,
-          p_group_id: groupId,
-        });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.rpc("approve_product_mapping", {
-          p_raw_name: rawName,
-          p_canonical_name: canonicalName.trim(),
-          p_category: category,
-          p_group_id: groupId,
-        });
-        if (error) throw error;
-      }
-    },
+    }) =>
+      existingProductId
+        ? confirmProductMatch({ rawName, productId: existingProductId, groupId })
+        : approveProductMapping({ rawName, canonicalName, category, groupId }),
     onSuccess: (_, { canonicalName, existingProductId }) => {
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       qc.invalidateQueries({ queryKey: ["all-products"] });
       qc.invalidateQueries({ queryKey: ["product-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-audit-count"] });
+      setPotentialPage(0); setNewPage(0);
       toast.success(existingProductId ? `Mapped to "${canonicalName}".` : `"${canonicalName}" added to catalog.`);
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
@@ -467,14 +306,8 @@ export function ProductAudit() {
   // ── product catalog: rename ───────────────────────────────────────────────
 
   const renameMutation = useMutation({
-    mutationFn: async ({ productId, name, category }: { productId: string; name: string; category: string }) => {
-      const { error } = await supabase.rpc("rename_product", {
-        p_product_id: productId,
-        p_canonical_name: name.trim(),
-        p_category: category,
-      });
-      if (error) throw error;
-    },
+    mutationFn: ({ productId, name, category }: { productId: string; name: string; category: string }) =>
+      renameProduct(productId, name, category),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-products"] });
       setEditingProductId(null);
@@ -486,15 +319,13 @@ export function ProductAudit() {
   // ── product catalog: delete ───────────────────────────────────────────────
 
   const deleteMutation = useMutation({
-    mutationFn: async (productId: string) => {
-      const { error } = await supabase.rpc("delete_product", { p_product_id: productId });
-      if (error) throw error;
-    },
+    mutationFn: (productId: string) => deleteProduct(productId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-products"] });
       qc.invalidateQueries({ queryKey: ["audit-items"] });
       qc.invalidateQueries({ queryKey: ["product-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-audit-count"] });
+      setPotentialPage(0); setNewPage(0);
       toast.success("Product deleted. Affected items will re-appear on next scan.");
     },
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
@@ -503,10 +334,7 @@ export function ProductAudit() {
   // ── delete raw mapping ────────────────────────────────────────────────────
 
   const deleteMappingMutation = useMutation({
-    mutationFn: async (mappingId: string) => {
-      const { error } = await supabase.rpc("delete_product_raw_mapping", { p_mapping_id: mappingId });
-      if (error) throw error;
-    },
+    mutationFn: (mappingId: string) => deleteProductMapping(mappingId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["product-raw-mappings"] });
       toast.success("Mapping removed. Items with this raw name will re-appear in the audit queue on next scan.");
@@ -514,9 +342,17 @@ export function ProductAudit() {
     onError: (err: Error) => toast.error(`Failed: ${err.message}`),
   });
 
-  // ── search ────────────────────────────────────────────────────────────────
+  // ── search + pagination ───────────────────────────────────────────────────
 
+  const [activeTab, setActiveTab] = useState<"candidates" | "catalog" | "mapped">("candidates");
   const [auditSearch, setAuditSearch] = useState("");
+  const [potentialPage, setPotentialPage] = useState(0);
+  const [newPage, setNewPage] = useState(0);
+
+  useEffect(() => {
+    setPotentialPage(0);
+    setNewPage(0);
+  }, [auditSearch]);
 
   // ── cluster state ─────────────────────────────────────────────────────────
 
@@ -640,6 +476,26 @@ export function ProductAudit() {
       : newCandidateClusters,
   [newCandidateClusters, auditSearch]);
 
+  const visibleProducts = useMemo(() =>
+    auditSearch.trim()
+      ? allProducts.filter((p) => p.name.toLowerCase().includes(auditSearch.toLowerCase()))
+      : allProducts,
+  [allProducts, auditSearch]);
+
+  const visibleMappings = useMemo(() => {
+    if (!auditSearch.trim()) return allMappings;
+    const q = auditSearch.toLowerCase();
+    return allMappings.filter((m) =>
+      m.raw_name.toLowerCase().includes(q) ||
+      (productsById.get(m.product_id)?.name ?? "").toLowerCase().includes(q)
+    );
+  }, [allMappings, auditSearch, productsById]);
+
+  const pagedPotential = visiblePotential.slice(potentialPage * CLUSTERS_PER_PAGE, (potentialPage + 1) * CLUSTERS_PER_PAGE);
+  const totalPotentialPages = Math.ceil(visiblePotential.length / CLUSTERS_PER_PAGE);
+  const pagedNew = visibleNew.slice(newPage * CLUSTERS_PER_PAGE, (newPage + 1) * CLUSTERS_PER_PAGE);
+  const totalNewPages = Math.ceil(visibleNew.length / CLUSTERS_PER_PAGE);
+
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
@@ -694,31 +550,31 @@ export function ProductAudit() {
         </div>
       )}
 
-      {/* ── Two-panel grid ──────────────────────────────────────────────── */}
+      {/* ── Audit content ──────────────────────────────────────────────── */}
       {!isLoading && !isMigrationNeeded && (
-        <div className="audit-layout" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 28, alignItems: "start" }}>
+        <div>
 
-          {/* ── LEFT: audit queue ──────────────────────────────────────── */}
-          <div>
-            {/* Search */}
-            {totalPending > 0 && (
-              <div style={{ position: "relative", marginBottom: 20 }}>
-                <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
-                <input
-                  value={auditSearch}
-                  onChange={(e) => setAuditSearch(e.target.value)}
-                  placeholder={t("audit.filterRaw")}
-                  style={{ ...inputStyle, paddingLeft: 32 }}
-                />
-              </div>
-            )}
+          {/* Search */}
+            <div style={{ position: "relative", marginBottom: 20 }}>
+              <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+              <input
+                value={auditSearch}
+                onChange={(e) => setAuditSearch(e.target.value)}
+                placeholder={
+                  activeTab === "catalog" ? t("audit.filterCatalog") :
+                  activeTab === "mapped" ? t("audit.filterMapped") :
+                  t("audit.filterRaw")
+                }
+                style={{ ...inputStyle, paddingLeft: 32 }}
+              />
+            </div>
 
             {/* Potential Matches */}
             {visiblePotential.length > 0 && (
               <section style={{ marginBottom: 36 }}>
                 <SectionHeader icon={<ArrowRightLeft size={16} />} title={t("audit.potentialMatchesSection")} subtitle={t("audit.potentialMatchesDesc")} color="var(--color-accent)" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {visiblePotential.map((cluster) => {
+                  {pagedPotential.map((cluster) => {
                     const suggestedProduct = cluster.items[0].suggested_product_id
                       ? productsById.get(cluster.items[0].suggested_product_id)
                       : null;
@@ -830,15 +686,59 @@ export function ProductAudit() {
                     );
                   })}
                 </div>
+                {totalPotentialPages > 1 && (
+                  <div className="tx-pagination">
+                    <button type="button" style={ghostBtn} disabled={potentialPage === 0} onClick={() => setPotentialPage((p) => p - 1)}>
+                      {t("common.prevPage")}
+                    </button>
+                    <span className="tx-pagination__info">
+                      {t("common.pageInfo", { current: potentialPage + 1, total: totalPotentialPages })}
+                    </span>
+                    <button type="button" style={ghostBtn} disabled={potentialPage >= totalPotentialPages - 1} onClick={() => setPotentialPage((p) => p + 1)}>
+                      {t("common.nextPage")}
+                    </button>
+                  </div>
+                )}
               </section>
             )}
 
+            {/* Tab buttons */}
+            <div style={{ display: "flex", gap: 8, margin: "4px 0 20px", flexWrap: "wrap" }}>
+              {(["candidates", "catalog", "mapped"] as const).map((tab) => {
+                const isActive = activeTab === tab;
+                const labels = {
+                  candidates: t("audit.tabCandidates"),
+                  catalog: t("audit.tabCatalog"),
+                  mapped: t("audit.tabMapped"),
+                };
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => { setActiveTab(tab); setAuditSearch(""); }}
+                    style={{
+                      padding: "7px 18px",
+                      borderRadius: 20,
+                      border: `1px solid ${isActive ? "transparent" : "var(--border-color)"}`,
+                      background: isActive ? "var(--color-accent)" : "var(--bg-card)",
+                      color: isActive ? "#fff" : "var(--text-secondary)",
+                      cursor: "pointer",
+                      fontSize: "0.875rem",
+                      fontWeight: isActive ? 600 : 400,
+                      transition: "background 0.15s, color 0.15s",
+                    }}
+                  >
+                    {labels[tab]}
+                  </button>
+                );
+              })}
+            </div>
+
             {/* New Product Candidates */}
-            {visibleNew.length > 0 && (
+            {activeTab === "candidates" && visibleNew.length > 0 && (
               <section style={{ marginBottom: 36 }}>
                 <SectionHeader icon={<Plus size={16} />} title={t("audit.newCandidatesSection")} subtitle={t("audit.newCandidatesDesc")} color="#f59e0b" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {visibleNew.map((cluster) => {
+                  {pagedNew.map((cluster) => {
                     const edit = getClusterEdit(cluster.key, cluster.rawName, cluster.category ?? "Otro");
                     const selectedProduct = clusterSelectedProduct[cluster.key] ?? null;
                     const isPending = approveMutation.isPending;
@@ -893,18 +793,31 @@ export function ProductAudit() {
                     );
                   })}
                 </div>
+                {totalNewPages > 1 && (
+                  <div className="tx-pagination">
+                    <button type="button" style={ghostBtn} disabled={newPage === 0} onClick={() => setNewPage((p) => p - 1)}>
+                      {t("common.prevPage")}
+                    </button>
+                    <span className="tx-pagination__info">
+                      {t("common.pageInfo", { current: newPage + 1, total: totalNewPages })}
+                    </span>
+                    <button type="button" style={ghostBtn} disabled={newPage >= totalNewPages - 1} onClick={() => setNewPage((p) => p + 1)}>
+                      {t("common.nextPage")}
+                    </button>
+                  </div>
+                )}
               </section>
             )}
 
             {/* No search results */}
-            {auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
+            {activeTab === "candidates" && auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
               <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
                 {t("audit.noSearchResults", { query: auditSearch })}
               </div>
             )}
 
             {/* Empty state */}
-            {totalPending === 0 && !scanMutation.isPending && (
+            {activeTab === "candidates" && totalPending === 0 && !scanMutation.isPending && (
               <div style={{ textAlign: "center", padding: "56px 24px", background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border-color)" }}>
                 <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: "0 auto 14px" }} />
                 <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>{t("audit.allMapped")}</p>
@@ -913,22 +826,18 @@ export function ProductAudit() {
                 </p>
               </div>
             )}
-          </div>
-
-          {/* ── RIGHT: catalog + mappings (sticky) ─────────────────────── */}
-          <div style={{ position: "sticky", top: 24, maxHeight: "calc(100vh - 48px)", overflowY: "auto" }}>
 
             {/* Product Catalog */}
-            {allProducts.length > 0 && (
+            {activeTab === "catalog" && visibleProducts.length > 0 && (
               <section style={{ marginBottom: 24 }}>
                 <SectionHeader
                   icon={<Package size={16} />}
                   title={t("audit.productCatalogSection")}
-                  subtitle={t("audit.productCatalogCount", { count: allProducts.length })}
+                  subtitle={t("audit.productCatalogCount", { count: visibleProducts.length })}
                   color="var(--text-muted)"
                 />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {allProducts.map((product) => {
+                  {visibleProducts.map((product) => {
                     const isEditing = editingProductId === product.id;
                     const isAdmin = isAdminOf(product.group_id ?? "");
                     const productMappings = mappingsByProductId.get(product.id) ?? [];
@@ -1015,7 +924,7 @@ export function ProductAudit() {
             )}
 
             {/* Confirmed Mappings */}
-            {allMappings.length > 0 && (
+            {activeTab === "mapped" && visibleMappings.length > 0 && (
               <section>
                 <SectionHeader
                   icon={<CheckCircle2 size={16} />}
@@ -1024,7 +933,7 @@ export function ProductAudit() {
                   color="var(--color-success)"
                 />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {allMappings.map((mapping) => {
+                  {visibleMappings.map((mapping) => {
                     const product = productsById.get(mapping.product_id);
                     const isAdmin = isAdminOf(mapping.group_id);
                     return (
@@ -1057,13 +966,31 @@ export function ProductAudit() {
               </section>
             )}
 
-            {allProducts.length === 0 && allMappings.length === 0 && (
+            {activeTab === "catalog" && allProducts.length === 0 && (
               <div style={{ ...cardStyle, padding: "24px 16px", textAlign: "center" }}>
                 <Package size={28} color="var(--text-muted)" style={{ margin: "0 auto 10px" }} />
                 <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>{t("audit.noProductsYet")}</p>
               </div>
             )}
-          </div>
+
+            {activeTab === "catalog" && allProducts.length > 0 && visibleProducts.length === 0 && (
+              <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                {t("audit.noSearchResults", { query: auditSearch })}
+              </div>
+            )}
+
+            {activeTab === "mapped" && allMappings.length === 0 && (
+              <div style={{ ...cardStyle, padding: "24px 16px", textAlign: "center" }}>
+                <CheckCircle2 size={28} color="var(--text-muted)" style={{ margin: "0 auto 10px" }} />
+                <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>{t("audit.confirmedMappingsSection")}</p>
+              </div>
+            )}
+
+            {activeTab === "mapped" && allMappings.length > 0 && visibleMappings.length === 0 && (
+              <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                {t("audit.noSearchResults", { query: auditSearch })}
+              </div>
+            )}
 
         </div>
       )}
@@ -1078,10 +1005,7 @@ export function ProductAudit() {
         {pendingConfirm?.body}
       </ConfirmModal>
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @media (max-width: 900px) { .audit-layout { grid-template-columns: 1fr !important; } }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -1139,3 +1063,5 @@ const primaryBtn: React.CSSProperties = { display: "flex", alignItems: "center",
 const ghostBtn: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-color)", borderRadius: 7, padding: "7px 12px", fontWeight: 500, fontSize: "0.82rem", cursor: "pointer", whiteSpace: "nowrap" };
 const labelStyle: React.CSSProperties = { display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 5, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.04em" };
 const inputStyle: React.CSSProperties = { width: "100%", background: "var(--bg-secondary)", border: "1px solid var(--border-color)", borderRadius: 7, padding: "8px 11px", color: "var(--text-primary)", fontSize: "0.88rem", boxSizing: "border-box" };
+
+export default ProductAudit;

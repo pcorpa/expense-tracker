@@ -1,117 +1,67 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
-import type { Group } from "../types";
+import { getGroups, createGroup, inviteMember } from "../api/groups";
 
 export function GroupManager() {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const [groups, setGroups] = useState<Group[]>([]);
+  const qc = useQueryClient();
+
   const [name, setName] = useState("");
   const [status, setStatus] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
 
-  useEffect(() => {
-    if (!user) return;
+  const groupsQuery = useQuery({
+    queryKey: ["my-groups"],
+    queryFn: getGroups,
+    enabled: Boolean(user),
+  });
+  const groups = (groupsQuery.data ?? []).filter((g) => !g.is_personal);
 
-    supabase
-      .from("group_members")
-      .select("group_id(id,name,is_personal),role")
-      .then(({ data, error }) => {
-        if (error) {
-          setStatus(error.message);
-          return;
-        }
+  const createGroupMutation = useMutation({
+    mutationFn: (groupName: string) => createGroup({ name: groupName, userId: user!.id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["my-groups"] });
+      setName("");
+      setStatus(t("groups.createSuccess"));
+    },
+    onError: (err: Error) => setStatus(err.message),
+  });
 
-        const loadedGroups = (data ?? [])
-          .map((item: any) => item.group_id as Group)
-          .filter((g: Group) => !g.is_personal);
-        setGroups(loadedGroups);
-      });
-  }, [user]);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user || !name.trim()) return;
-
-    setLoading(true);
     setStatus(null);
-
-    const groupId = crypto.randomUUID();
-    const { error: groupError } = await supabase.from("groups").insert([
-      {
-        id: groupId,
-        name: name.trim(),
-      },
-    ]);
-
-    if (groupError) {
-      setLoading(false);
-      setStatus(groupError.message);
-      return;
-    }
-
-    const { error: memberError } = await supabase.from("group_members").insert([
-      {
-        group_id: groupId,
-        user_id: user.id,
-        role: "admin",
-      },
-    ]);
-
-    if (memberError) {
-      setLoading(false);
-      setStatus(memberError.message);
-      return;
-    }
-
-    setGroups((current) => [
-      ...current,
-      { id: groupId, name: name.trim(), is_personal: false, created_at: new Date().toISOString() },
-    ]);
-    setName("");
-    setStatus(t("groups.createSuccess"));
-    setLoading(false);
+    createGroupMutation.mutate(name.trim());
   }
 
   async function handleInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user || !selectedGroupId || !inviteEmail.trim()) return;
 
-    setInviteLoading(true);
-
     const selectedGroup = groups.find((g) => g.id === selectedGroupId);
     if (!selectedGroup) return;
 
-    const { error } = await supabase.functions.invoke("send-invitation", {
-      body: {
-        group_id: selectedGroupId,
-        invited_email: inviteEmail.trim(),
-        group_name: selectedGroup.name,
-        inviting_user_email: user.email,
-      },
-    });
-
-    if (error) {
-      console.error("Invitation error:", error);
-      let detail = error.message;
-      try {
-        const body = await (error as any).context?.json?.();
-        detail = JSON.stringify(body);
-      } catch {}
-      setStatus(`Failed: ${detail}`);
+    setInviteLoading(true);
+    try {
+      await inviteMember({
+        groupId: selectedGroupId,
+        email: inviteEmail.trim(),
+        groupName: selectedGroup.name,
+        invitingUserEmail: user.email!,
+      });
+      setStatus(t("groups.inviteSuccess"));
+      setInviteEmail("");
+      setSelectedGroupId(null);
+    } catch (err) {
+      setStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
       setInviteLoading(false);
-      return;
     }
-
-    setStatus(t("groups.inviteSuccess"));
-    setInviteEmail("");
-    setSelectedGroupId(null);
-    setInviteLoading(false);
   }
 
   return (
@@ -135,8 +85,8 @@ export function GroupManager() {
               placeholder="e.g. Family"
             />
           </label>
-          <button type="submit" className="button" disabled={loading}>
-            {loading ? t("groups.creating") : t("groups.createBtn")}
+          <button type="submit" className="button" disabled={createGroupMutation.isPending}>
+            {createGroupMutation.isPending ? t("groups.creating") : t("groups.createBtn")}
           </button>
         </form>
 
@@ -205,3 +155,5 @@ export function GroupManager() {
     </main>
   );
 }
+
+export default GroupManager;

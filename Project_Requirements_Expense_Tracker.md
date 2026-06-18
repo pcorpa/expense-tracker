@@ -265,7 +265,7 @@ Generated transactions appear in the expense list and analytics for their respec
 
 Mirrors the vendor admin controls introduced in Phase 6:
 
-- **Product catalog panel** — the Product Audit page adopts a two-panel layout: left panel holds the review queue (potential matches + new candidates); right panel shows the canonical product catalog and confirmed mappings, sticky on desktop.
+- **Product catalog panel** — the Product Audit page uses a single-column layout with tab navigation below the Potential Matches section: three pill tabs ("New Candidates", "Catalog", "Mapped") control which section is shown below. The search bar filters the active tab's content (candidates → raw name, catalog → canonical name, mapped → raw or canonical name); switching tabs clears the search.
 - **Inline rename / delete** — group admins can rename or delete canonical products directly from the right panel.
 - **`product_raw_mappings` table** (`0021_product_admin_controls.sql`) — every confirmed raw item name → canonical product decision is stored persistently. Future scans auto-match the same raw name without manual review.
 - **Confirmed mappings panel** — admins can view all confirmed mappings and delete individual ones. Deleting a mapping resets the `mapping_status` of all previously auto-matched `transaction_items` to `NULL` so they re-appear in the audit queue on the next scan (`0023`).
@@ -296,6 +296,139 @@ Mirrors the vendor admin controls introduced in Phase 6:
 
 - Replaced all `window.confirm()` calls app-wide with the shared `ConfirmModal` component (dark-mode aware, styled, non-blocking).
 - Affected pages: `ProductAudit.tsx`, `VendorAudit.tsx`, `EditRecurringExpense.tsx`.
+
+### Phase 9 — Scalability & Performance Hardening
+
+Addresses the key bottlenecks identified via architectural review (June 2026). The app is functional for current usage but would degrade noticeably at 10k+ transactions or multiple active groups without these changes.
+
+#### 9.1 Database Indexes ✅ Complete
+
+Add a migration (`0024_scalability_indexes.sql`) with the following missing indexes:
+
+```sql
+-- Most impactful: date-range filtering used in all list views
+CREATE INDEX idx_transactions_group_date ON transactions(group_id, date DESC);
+
+-- Composite group membership lookup (speeds up RLS policy evaluation)
+CREATE INDEX idx_group_members_user_group ON group_members(user_id, group_id);
+```
+
+#### 9.2 Pagination — ExpenseList ✅ Complete
+
+`ExpenseList.tsx` fetches transactions with server-side offset pagination:
+
+- Page size: 50 rows
+- Uses `.range(from, to)` + `{ count: 'exact' }` on the Supabase query
+- Previous / Next controls with "Page N of M" indicator
+- Shared `.tx-pagination` CSS class reused across all paginated pages
+
+#### 9.3 Pagination — ReviewQueue & Audit Pages ✅ Complete
+
+- `ReviewQueue.tsx` — server-side pagination via `src/api/reviewQueue.ts`, 20 transactions/page; page resets to 0 after approve/retry actions
+- `VendorAudit.tsx` and `ProductAudit.tsx` — single-column layout with three tab buttons ("New Candidates", "Catalog", "Mapped") below the Potential Matches section; client-side cluster pagination (10 clusters/page per section); each section paginates independently; pages reset when the search filter changes or a mutation succeeds; search bar filters the active tab's content and clears on tab switch
+- Shared i18n keys added under `"common"`: `prevPage`, `nextPage`, `pageInfo`
+
+#### 9.4 Route-Level Lazy Loading ✅ Complete
+
+All 19 page components converted to `React.lazy()` in `App.tsx`. Each page file received a `export default ComponentName;` line (keeping the existing named export) so the standard lazy pattern applies without wrappers:
+
+```tsx
+// Each page file — one line added at the bottom:
+export default ExpenseList;
+
+// App.tsx — clean standard pattern:
+const ExpenseList = lazy(() => import('./pages/ExpenseList'));
+```
+
+Routes wrapped in `<Suspense fallback={<main className="page" />}>` (blank content area; shell stays visible). Non-page imports (NavBar, MobileMenu, ProtectedRoute, PublicOnlyRoute, providers) remain static. Build now produces ~19 separate JS chunks; Analytics (404 kB charting library) and other heavy pages are only downloaded when first navigated to.
+
+#### 9.5 API Service Layer ✅ Complete
+
+`src/api/` created with one file per domain. Each file exports typed async functions that wrap all Supabase calls:
+
+- `src/api/transactions.ts` — `getTransactions()`, `submitTransaction()`, `getTransactionHeader()`, `updateTransactionHeader()`, `upsertTransactionItem()`, `deleteTransaction()`
+- `src/api/vendors.ts` — vendor audit and mapping RPCs
+- `src/api/products.ts` — `getProducts()`, `getProductSuggestions()`, product audit RPCs
+- `src/api/groups.ts` — `getGroups()`, `getAllGroups()`, `inviteMember()`
+- `src/api/reviewQueue.ts` — `getReviewTransactions()`, `getFailedReceipts()`, `retryReceipt()`, `approveTransaction()`
+
+Applied first to: `ExpenseList.tsx`, `VendorAudit.tsx`, `ProductAudit.tsx`, `GroupManager.tsx`, and nav badge hooks.
+
+#### 9.6 Complete API Layer & React Query Migration ✅ Complete
+
+Extended the API layer to cover every remaining page, and replaced all `useEffect + useState` data-fetching patterns with `useQuery`/`useMutation`.
+
+New API files added:
+- `src/api/profiles.ts`, `src/api/invitations.ts`, `src/api/receipts.ts`, `src/api/analytics.ts`, `src/api/shoppingList.ts`, `src/api/recurringExpenses.ts`
+
+Pages/components migrated: `Profile`, `Invitations`, `ProcessedImages`, `ReviewQueue`, `ReviewTransactionEdit`, `ReviewItemEdit`, `TransactionEntry`, `ShoppingList`, `Analytics`, `RecurringExpenses`, `AddRecurringExpense`, `EditRecurringExpense`, `UploadReceiptPanel`, `usePendingInvitationsCount`.
+
+**Invariant enforced:** No component or hook imports `supabase` directly — all data access goes through `src/api/`. Exceptions: `src/lib/auth.tsx`, `src/pages/SignIn.tsx`, `src/pages/SignUp.tsx` (auth calls), and `src/lib/recurringExpenses.ts` (utility that takes supabase as a parameter, called from the API layer).
+
+Benefits achieved: automatic caching, query deduplication, consistent loading/error states, background refetch, shared `['all-groups']` cache across pages.
+
+#### 9.7 Bundle Analysis ✅ Complete
+
+Installed `rollup-plugin-visualizer` as a dev dependency. Added to `vite.config.ts` with `open: false` (outputs `dist/stats.html` on every build). Key findings from initial analysis:
+
+- `heic2any` — 1,352 kB minified (344 kB gzip). Already lazy-imported inside `convertHeicToJpeg`, so it only loads when a HEIC file is processed.
+- `Analytics` / Recharts chunk — 404 kB minified (115 kB gzip). Already lazy-loaded via route-level code splitting (Phase 9.4).
+- All other route chunks are under 30 kB. No additional splitting required.
+
+#### 9.8 Verification
+
+- Seed dev database with 10k transactions and confirm `ExpenseList` loads in < 500ms (paginated)
+- Use Supabase dashboard → Query Performance to confirm `idx_transactions_group_date` is used for date-filtered queries
+- Run `pnpm build` and inspect chunk sizes before/after lazy loading
+- Open VendorAudit and ProductAudit with 500+ pending items; confirm no UI hang
+
+---
+
+### Phase 10 — Public Marketing Shell ✅ Complete
+
+Adds a public-facing landing page and pricing page under a separate marketing layout, while locking all app routes behind authentication. Unauthenticated visitors can explore the product before signing up; authenticated users hitting `/` are auto-redirected to `/dashboard`.
+
+#### 10.1 Layout Route Split
+
+Replaced the single `AppShell` layout with two distinct layout components, using React Router v7's `<Outlet />`-based layout route pattern:
+
+- **`PublicLayout`** — sticky marketing header (logo, Pricing nav link, Sign In link, "Get Started" CTA) + `<Outlet />`. No app sidebar. Supports dark/light theme toggle and language switch.
+- **`AppLayout`** — extracted from `AppShell`; uses `<Outlet />` instead of internal `<Routes>`; absorbs the per-route `<ProtectedRoute>` wrapper into a single auth gate at the layout level (if no user → redirect to `/signin`).
+
+Route structure:
+
+```
+<Route element={<PublicLayout />}>
+  /             → LandingPage   (redirects authenticated users to /dashboard)
+  /pricing      → PricingPage
+  /signin       → SignIn
+  /signup       → SignUp
+
+<Route element={<AppLayout />}>
+  /dashboard    → Home          (moved from /)
+  /upload, /review, /analytics, ... (all existing paths unchanged)
+```
+
+All existing app route **paths are unchanged**. No database or API changes.
+
+#### 10.2 New Pages
+
+- **`LandingPage`** (`/`) — hero section (headline, sub, CTAs), 6-feature grid (AI scanning, analytics, groups, recurring, shopping list, normalization), bottom CTA. On mount: if user is authenticated, `<Navigate to="/dashboard" replace />`.
+- **`PricingPage`** (`/pricing`) — single "Free beta" tier card with full feature list. No auth required.
+
+#### 10.3 Navigation & Auth Updates
+
+- `NavBar.tsx` and `MobileMenu.tsx` — Home link updated from `"/"` to `"/dashboard"`.
+- `PublicOnlyRoute.tsx` — redirect for authenticated users changed from `"/"` to `"/dashboard"`.
+- `SignIn.tsx` and `SignUp.tsx` — all `navigate("/")` post-auth calls updated to `navigate("/dashboard")`.
+- Also wired up the missing `/processed-images` route (page existed but had no route definition).
+
+#### 10.4 i18n
+
+New keys added to `en.json` and `es.json`:
+- `nav.pricing` — "Pricing" / "Precios"
+- `landing.*` — all landing page copy (eyebrow, headline, sub, feature cards, CTA)
+- `pricing.*` — all pricing page copy including `freeFeatures` array
 
 ---
 

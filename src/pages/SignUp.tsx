@@ -17,7 +17,7 @@ export function SignUp() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      navigate("/", { replace: true });
+      navigate("/dashboard", { replace: true });
     }
   }, [user, authLoading, navigate]);
 
@@ -62,7 +62,7 @@ export function SignUp() {
       }
     }
 
-    navigate("/");
+    navigate("/dashboard");
   }
 
   return (
@@ -131,3 +131,5 @@ export function SignUp() {
     </main>
   );
 }
+
+export default SignUp;

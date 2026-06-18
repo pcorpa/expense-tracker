@@ -2,11 +2,17 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
-import type { RecurringExpense, RecurringFrequency } from "../types";
+import type { RecurringFrequency } from "../types";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { countPaidInstallments, computeInitialLastGeneratedDate } from "../lib/recurringExpenses";
+import {
+  getRecurringExpense,
+  updateRecurringExpense,
+  cancelRecurringExpense,
+  deleteRecurringExpense,
+} from "../api/recurringExpenses";
 
 const FIXED_CATEGORIES: { value: string; i18nKey: string }[] = [
   { value: "Comida", i18nKey: "categories.comida" },
@@ -71,7 +77,6 @@ export function EditRecurringExpense() {
     label: t(`frequencies.${v}`),
   }));
 
-  const [item, setItem] = useState<RecurringExpense | null>(null);
   const [name, setName] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [category, setCategory] = useState("Tecnología");
@@ -83,8 +88,8 @@ export function EditRecurringExpense() {
   const [frequency, setFrequency] = useState<RecurringFrequency>("monthly");
   const [startDate, setStartDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [initialized, setInitialized] = useState(false);
 
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
@@ -98,40 +103,38 @@ export function EditRecurringExpense() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [currentInstallment, setCurrentInstallment] = useState(0);
 
+  const itemQuery = useQuery({
+    queryKey: ["recurring-expense", id],
+    queryFn: () => getRecurringExpense(id!),
+    enabled: Boolean(user) && Boolean(id),
+  });
+  const item = itemQuery.data ?? null;
+  const loading = itemQuery.isLoading;
+
   useEffect(() => {
-    if (!user || !id) return;
-    supabase
-      .from("recurring_expenses")
-      .select("*")
-      .eq("id", id)
-      .single()
-      .then(({ data }) => {
-        if (!data) {
-          navigate("/recurring");
-          return;
-        }
-        setItem(data);
-        setName(data.name);
-        setVendorName(data.vendor_name ?? "");
-        if (FIXED_CATEGORIES.some((c) => c.value === data.category)) {
-          setCategory(data.category);
-        } else {
-          setCategory("Otro");
-          setCustomCategory(data.category);
-        }
-        setCurrency(data.currency);
-        setAmount(data.amount.toString());
-        setTotalPurchaseAmount(data.total_purchase_amount?.toString() ?? "");
-        setTotalInstallments(data.total_installments?.toString() ?? "");
-        setFrequency(data.frequency);
-        setStartDate(data.start_date);
-        setNotes(data.notes ?? "");
-        if (data.type === "installment") {
-          setCurrentInstallment(countPaidInstallments(data));
-        }
-        setLoading(false);
-      });
-  }, [user, id]);
+    if (!itemQuery.data || initialized) return;
+    const data = itemQuery.data;
+    if (!data) { navigate("/recurring"); return; }
+    setName(data.name);
+    setVendorName(data.vendor_name ?? "");
+    if (FIXED_CATEGORIES.some((c) => c.value === data.category)) {
+      setCategory(data.category);
+    } else {
+      setCategory("Otro");
+      setCustomCategory(data.category);
+    }
+    setCurrency(data.currency);
+    setAmount(data.amount.toString());
+    setTotalPurchaseAmount(data.total_purchase_amount?.toString() ?? "");
+    setTotalInstallments(data.total_installments?.toString() ?? "");
+    setFrequency(data.frequency);
+    setStartDate(data.start_date);
+    setNotes(data.notes ?? "");
+    if (data.type === "installment") {
+      setCurrentInstallment(countPaidInstallments(data));
+    }
+    setInitialized(true);
+  }, [itemQuery.data, initialized]);
 
   const installmentAmount =
     item?.type === "installment" &&
@@ -188,69 +191,42 @@ export function EditRecurringExpense() {
           : computeInitialLastGeneratedDate(startDate, frequency, currentInstallment);
     }
 
-    if (installmentChanged && currentInstallment < originalPaid) {
-      const { data: txsToDelete } = await supabase
-        .from("transactions")
-        .select("id")
-        .eq("recurring_expense_id", id!)
-        .gt("installment_number", currentInstallment);
-
-      if (txsToDelete && txsToDelete.length > 0) {
-        const txIds = txsToDelete.map((tx: any) => tx.id);
-        await supabase.from("transaction_items").delete().in("transaction_id", txIds);
-        await supabase.from("transactions").delete().in("id", txIds);
-      }
+    try {
+      await updateRecurringExpense({
+        id: id!,
+        payload,
+        deleteInstallmentsAfter:
+          installmentChanged && currentInstallment < originalPaid
+            ? currentInstallment
+            : undefined,
+      });
+      navigate("/recurring");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
-
-    const { error: updateError } = await supabase
-      .from("recurring_expenses")
-      .update(payload)
-      .eq("id", id!);
-
-    setSaving(false);
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-    navigate("/recurring");
   }
 
   async function handleCancel() {
     setCanceling(true);
-    const today = new Date().toISOString().split("T")[0];
-    await supabase
-      .from("recurring_expenses")
-      .update({
-        is_active: false,
-        end_date: today,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id!);
-    navigate("/recurring");
+    try {
+      await cancelRecurringExpense(id!);
+      navigate("/recurring");
+    } finally {
+      setCanceling(false);
+    }
   }
 
   async function handleDelete() {
     if (!deleteMode) return;
     setDeleting(true);
-
-    if (deleteMode === "all") {
-      const { data: txs } = await supabase
-        .from("transactions")
-        .select("id")
-        .eq("recurring_expense_id", id!);
-
-      if (txs && txs.length > 0) {
-        const txIds = txs.map((tx: any) => tx.id);
-        await supabase
-          .from("transaction_items")
-          .delete()
-          .in("transaction_id", txIds);
-        await supabase.from("transactions").delete().in("id", txIds);
-      }
+    try {
+      await deleteRecurringExpense({ id: id!, deleteTransactions: deleteMode === "all" });
+      navigate("/recurring");
+    } finally {
+      setDeleting(false);
     }
-
-    await supabase.from("recurring_expenses").delete().eq("id", id!);
-    navigate("/recurring");
   }
 
   const twoColStyle: React.CSSProperties = {
@@ -956,3 +932,5 @@ export function EditRecurringExpense() {
     </div>
   );
 }
+
+export default EditRecurringExpense;

@@ -1,68 +1,51 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
-import type { DateFormat, Profile } from "../types";
+import { getProfile, upsertProfile } from "../api/profiles";
+import type { DateFormat } from "../types";
 
 export function Profile() {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [dateFormat, setDateFormat] = useState<DateFormat>("DD/MM/YYYY");
-  const [loading, setLoading] = useState(false);
+  const [initialized, setInitialized] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const profileQuery = useQuery({
+    queryKey: ["profile", user?.id],
+    queryFn: () => getProfile(user!.id),
+    enabled: Boolean(user),
+  });
+
   useEffect(() => {
-    if (!user) return;
+    if (profileQuery.data && !initialized) {
+      setFirstName(profileQuery.data.first_name || "");
+      setLastName(profileQuery.data.last_name || "");
+      setDateFormat(profileQuery.data.date_format ?? "DD/MM/YYYY");
+      setInitialized(true);
+    }
+  }, [profileQuery.data, initialized]);
 
-    supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (error) {
-          setMessage(error.message);
-          return;
-        }
-        if (!data) return;
-        setProfile(data);
-        setFirstName(data.first_name || "");
-        setLastName(data.last_name || "");
-        setDateFormat(data.date_format ?? "DD/MM/YYYY");
-      });
-  }, [user]);
+  const saveMutation = useMutation({
+    mutationFn: upsertProfile,
+    onSuccess: () => setMessage(t("profile.savedSuccess")),
+    onError: (err: Error) => setMessage(err.message),
+  });
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user) return;
-
-    setLoading(true);
     setMessage(null);
-
-    const { error } = await supabase
-      .from("profiles")
-      .upsert({
-        id: user.id,
-        email: user.email,
-        first_name: firstName,
-        last_name: lastName,
-        date_format: dateFormat,
-      });
-
-    setLoading(false);
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    setMessage(t("profile.savedSuccess"));
-    setProfile((prev) =>
-      prev ? { ...prev, first_name: firstName, last_name: lastName, date_format: dateFormat } : null,
-    );
+    saveMutation.mutate({
+      id: user.id,
+      email: user.email,
+      first_name: firstName,
+      last_name: lastName,
+      date_format: dateFormat,
+    });
   }
 
   return (
@@ -95,7 +78,7 @@ export function Profile() {
           </label>
           <label>
             {t("profile.email")}
-            <input value={profile?.email || user?.email || ""} disabled />
+            <input value={profileQuery.data?.email || user?.email || ""} disabled />
           </label>
           <label>
             {t("profile.dateFormat")}
@@ -110,11 +93,13 @@ export function Profile() {
 
           {message ? <div className="alert">{message}</div> : null}
 
-          <button type="submit" className="button" disabled={loading}>
-            {loading ? t("profile.saving") : t("profile.saveBtn")}
+          <button type="submit" className="button" disabled={saveMutation.isPending}>
+            {saveMutation.isPending ? t("profile.saving") : t("profile.saveBtn")}
           </button>
         </form>
       </div>
     </main>
   );
 }
+
+export default Profile;

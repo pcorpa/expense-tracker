@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -15,13 +15,16 @@ import {
   Trash2,
   Wallet,
 } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
+import { countPaidInstallments } from "../lib/recurringExpenses";
+import { getAllGroups } from "../api/groups";
 import {
-  generateDueTransactions,
-  countPaidInstallments,
-} from "../lib/recurringExpenses";
-import type { RecurringExpense, RecurringFrequency, Group } from "../types";
+  getRecurringExpenses,
+  cancelRecurringExpense,
+  generateDueForAll,
+} from "../api/recurringExpenses";
+import type { RecurringExpense, RecurringFrequency } from "../types";
 
 const FREQ_MONTHLY_MULT: Record<RecurringFrequency, number> = {
   weekly: 4.33,
@@ -45,79 +48,43 @@ export function RecurringExpenses() {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
-  const [items, setItems] = useState<RecurringExpense[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
   const [groupFilter, setGroupFilter] = useState<string>("all");
-  const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
-    loadData();
-  }, [user]);
+  const qc = useQueryClient();
 
-  async function loadData() {
-    setLoading(true);
+  const { data: allGroups = [] } = useQuery({
+    queryKey: ["all-groups"],
+    queryFn: getAllGroups,
+    enabled: Boolean(user),
+  });
+  const groupIds = allGroups.map((g) => g.id);
 
-    const { data: memberships } = await supabase
-      .from("group_members")
-      .select("group_id, groups(id, name)")
-      .eq("user_id", user!.id);
+  const { data: items = [], isLoading: loading } = useQuery({
+    queryKey: ["recurring-expenses", groupIds],
+    queryFn: async () => {
+      const expenses = await getRecurringExpenses(groupIds);
+      const active = expenses.filter((r) => r.is_active);
+      if (active.length > 0) {
+        await generateDueForAll(active);
+        return getRecurringExpenses(groupIds);
+      }
+      return expenses;
+    },
+    enabled: groupIds.length > 0,
+  });
 
-    const resolvedGroups = (memberships ?? [])
-      .map((m: any) => m.groups)
-      .filter(Boolean) as Group[];
-    setGroups(resolvedGroups);
+  const cancelMutation = useMutation({
+    mutationFn: cancelRecurringExpense,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recurring-expenses"] });
+      setCancelConfirmId(null);
+    },
+  });
 
-    const groupIds = (memberships ?? []).map((m: any) => m.group_id);
-    if (groupIds.length === 0) {
-      setItems([]);
-      setLoading(false);
-      return;
-    }
-
-    const { data } = await supabase
-      .from("recurring_expenses")
-      .select("*")
-      .in("group_id", groupIds)
-      .order("created_at", { ascending: false });
-
-    const allItems = data ?? [];
-    setItems(allItems);
-    setLoading(false);
-
-    const active = allItems.filter((r: RecurringExpense) => r.is_active);
-    if (active.length > 0) {
-      setGenerating(true);
-      await Promise.all(
-        active.map((r: RecurringExpense) =>
-          generateDueTransactions(r, supabase, new Date())
-        )
-      );
-      const { data: refreshed } = await supabase
-        .from("recurring_expenses")
-        .select("*")
-        .in("group_id", groupIds)
-        .order("created_at", { ascending: false });
-      setItems(refreshed ?? []);
-      setGenerating(false);
-    }
-  }
-
-  async function handleCancel(id: string) {
-    const today = new Date().toISOString().split("T")[0];
-    await supabase
-      .from("recurring_expenses")
-      .update({
-        is_active: false,
-        end_date: today,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id);
-    setCancelConfirmId(null);
-    await loadData();
+  function handleCancel(id: string) {
+    cancelMutation.mutate(id);
   }
 
   const filtered =
@@ -220,20 +187,7 @@ export function RecurringExpenses() {
         </div>
       </div>
 
-      {generating && (
-        <div
-          className="alert"
-          style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}
-        >
-          <RefreshCw
-            size={14}
-            style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
-          />
-          {t("recurring.syncPending")}
-        </div>
-      )}
-
-      {groups.length > 1 && (
+      {allGroups.length > 1 && (
         <div style={{ marginBottom: 16 }}>
           <select
             value={groupFilter}
@@ -241,7 +195,7 @@ export function RecurringExpenses() {
             style={{ width: "auto" }}
           >
             <option value="all">{t("recurring.allGroups")}</option>
-            {groups.map((g) => (
+            {allGroups.map((g) => (
               <option key={g.id} value={g.id}>
                 {g.name}
               </option>
@@ -747,3 +701,5 @@ function RecurringCard({
     </div>
   );
 }
+
+export default RecurringExpenses;

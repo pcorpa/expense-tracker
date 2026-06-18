@@ -19,10 +19,25 @@ import {
   Search,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "../lib/supabase";
+import {
+  getVendorAuditTransactions,
+  updateTransactionsVendorStatus,
+  getReceiptSignedUrl,
+} from "../api/transactions";
+import {
+  getVendors,
+  getVendorMappings,
+  runVendorScan,
+  confirmVendorMatch,
+  approveVendorMapping,
+  renameVendor,
+  deleteVendor,
+  deleteVendorMapping,
+} from "../api/vendors";
+import { getGroupRoles } from "../api/groups";
 import { runVendorNormalizationPipeline } from "../lib/fuzzyMatchVendor";
 import { ConfirmModal } from "../components/ConfirmModal";
-import type { Vendor, VendorMappingStatus, VendorRawMapping } from "../types";
+import type { Vendor, VendorMappingStatus } from "../types";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -48,161 +63,6 @@ type Cluster = {
   canonicalName: string;
   similarity?: number;
 };
-
-// ─── data fetchers ────────────────────────────────────────────────────────────
-
-async function fetchAuditTransactions(): Promise<AuditTransaction[]> {
-  const { data, error } = await supabase
-    .from("transactions")
-    .select("id, vendor_or_source, vendor_mapping_status, group_id, date, total_amount, currency, receipts(image_url)")
-    .in("vendor_mapping_status", ["needs_vendor_review", "new_vendor_candidate"])
-    .not("vendor_or_source", "is", null)
-    .order("vendor_or_source");
-  if (error) throw Object.assign(new Error(error.message), { code: (error as any).code });
-  return (data ?? []).map((row: any) => ({
-    ...row,
-    suggested_vendor_id: null,
-    receipt_image_path: (row.receipts as any)?.image_url ?? null,
-    receipts: undefined,
-  }));
-}
-
-async function fetchAllVendors(): Promise<Vendor[]> {
-  const { data, error } = await supabase
-    .from("vendors")
-    .select("id, group_id, canonical_name, created_at")
-    .order("canonical_name");
-  if (error) return [];
-  return data as Vendor[];
-}
-
-async function fetchRawMappings(): Promise<VendorRawMapping[]> {
-  const { data, error } = await supabase
-    .from("vendor_raw_mappings")
-    .select("id, group_id, raw_name, vendor_id, created_at")
-    .order("raw_name");
-  if (error) return [];
-  return data as VendorRawMapping[];
-}
-
-async function fetchMyGroupRoles(): Promise<Record<string, "admin" | "member">> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return {};
-  const { data } = await supabase
-    .from("group_members")
-    .select("group_id, role")
-    .eq("user_id", user.id);
-  const map: Record<string, "admin" | "member"> = {};
-  for (const row of data ?? []) map[row.group_id] = row.role;
-  return map;
-}
-
-// ─── scan pipeline ────────────────────────────────────────────────────────────
-
-async function runScan(): Promise<{ scanned: number; autoMatched: number; needsReview: number; newCandidates: number }> {
-  const { data: rawTxs, error: txErr } = await supabase
-    .from("transactions")
-    .select("id, vendor_or_source, group_id")
-    .is("vendor_mapping_status", null)
-    .not("vendor_or_source", "is", null)
-    .neq("vendor_or_source", "Unknown");
-
-  if (txErr) throw txErr;
-  if (!rawTxs || rawTxs.length === 0) return { scanned: 0, autoMatched: 0, needsReview: 0, newCandidates: 0 };
-
-  const groupIds = [...new Set(rawTxs.map((t: any) => t.group_id as string))];
-
-  const [{ data: vendors, error: vendorsErr }, { data: rawMappings }] = await Promise.all([
-    supabase.from("vendors").select("id, group_id, canonical_name, created_at"),
-    supabase.from("vendor_raw_mappings").select("group_id, raw_name, vendor_id").in("group_id", groupIds),
-  ]);
-  if (vendorsErr) throw vendorsErr;
-
-  const allVendors = (vendors ?? []) as Vendor[];
-
-  // Build a lookup: "groupId|rawNameLower" → vendorId for confirmed mappings
-  const confirmedMap = new Map<string, string>();
-  for (const m of rawMappings ?? []) {
-    confirmedMap.set(`${m.group_id}|${m.raw_name.toLowerCase().trim()}`, m.vendor_id);
-  }
-
-  const autoMatchedByVendor = new Map<string, string[]>();
-  const reviewByVendor = new Map<string, string[]>();
-  const newCandidateIds: string[] = [];
-  const fuzzyTxs: typeof rawTxs = [];
-
-  // Step 1: check confirmed mappings first (exact, no fuzzy needed)
-  for (const tx of rawTxs) {
-    const key = `${tx.group_id}|${(tx.vendor_or_source ?? "").toLowerCase().trim()}`;
-    const knownVendorId = confirmedMap.get(key);
-    if (knownVendorId) {
-      const ids = autoMatchedByVendor.get(knownVendorId) ?? [];
-      ids.push(tx.id);
-      autoMatchedByVendor.set(knownVendorId, ids);
-    } else {
-      fuzzyTxs.push(tx);
-    }
-  }
-
-  // Step 2: fuzzy-match the remainder
-  const fuzzyResults = groupIds.flatMap((gid) => {
-    const groupTxs = fuzzyTxs.filter((t: any) => t.group_id === gid);
-    if (!groupTxs.length) return [];
-    const groupVendors = allVendors.filter((v) => v.group_id === gid);
-    return runVendorNormalizationPipeline(groupTxs, groupVendors);
-  });
-
-  for (const r of fuzzyResults) {
-    if (r.status === "auto_matched" && r.suggestedVendorId) {
-      const ids = autoMatchedByVendor.get(r.suggestedVendorId) ?? [];
-      ids.push(r.id);
-      autoMatchedByVendor.set(r.suggestedVendorId, ids);
-    } else if (r.status === "needs_vendor_review") {
-      const ids = reviewByVendor.get(r.suggestedVendorId ?? "__none__") ?? [];
-      ids.push(r.id);
-      reviewByVendor.set(r.suggestedVendorId ?? "__none__", ids);
-    } else {
-      newCandidateIds.push(r.id);
-    }
-  }
-
-  const updates: PromiseLike<unknown>[] = [];
-
-  for (const [vendorId, ids] of autoMatchedByVendor) {
-    updates.push(
-      supabase
-        .from("transactions")
-        .update({ vendor_id: vendorId, vendor_mapping_status: "auto_matched" })
-        .in("id", ids),
-    );
-  }
-  for (const ids of reviewByVendor.values()) {
-    updates.push(
-      supabase
-        .from("transactions")
-        .update({ vendor_mapping_status: "needs_vendor_review" })
-        .in("id", ids),
-    );
-  }
-  if (newCandidateIds.length > 0) {
-    updates.push(
-      supabase
-        .from("transactions")
-        .update({ vendor_mapping_status: "new_vendor_candidate" })
-        .in("id", newCandidateIds),
-    );
-  }
-
-  await Promise.all(updates);
-
-  const totalAutoMatched = [...autoMatchedByVendor.values()].reduce((s, ids) => s + ids.length, 0);
-  return {
-    scanned: rawTxs.length,
-    autoMatched: totalAutoMatched,
-    needsReview: [...reviewByVendor.values()].reduce((s, ids) => s + ids.length, 0),
-    newCandidates: newCandidateIds.length,
-  };
-}
 
 // ─── combobox component ────────────────────────────────────────────────────────
 
@@ -307,16 +167,18 @@ function VendorCombobox({
   );
 }
 
+const CLUSTERS_PER_PAGE = 10;
+
 // ─── component ────────────────────────────────────────────────────────────────
 
 export function VendorAudit() {
   const { t } = useTranslation();
   const qc = useQueryClient();
 
-  const auditQuery = useQuery({ queryKey: ["vendor-audit-txs"], queryFn: fetchAuditTransactions, retry: false });
-  const vendorsQuery = useQuery({ queryKey: ["all-vendors"], queryFn: fetchAllVendors, retry: false });
-  const rawMappingsQuery = useQuery({ queryKey: ["vendor-raw-mappings"], queryFn: fetchRawMappings, retry: false });
-  const rolesQuery = useQuery({ queryKey: ["my-group-roles"], queryFn: fetchMyGroupRoles });
+  const auditQuery = useQuery({ queryKey: ["vendor-audit-txs"], queryFn: getVendorAuditTransactions, retry: false });
+  const vendorsQuery = useQuery({ queryKey: ["all-vendors"], queryFn: getVendors, retry: false });
+  const rawMappingsQuery = useQuery({ queryKey: ["vendor-raw-mappings"], queryFn: getVendorMappings, retry: false });
+  const rolesQuery = useQuery({ queryKey: ["my-group-roles"], queryFn: getGroupRoles });
 
   const auditError = auditQuery.error as (Error & { code?: string }) | null;
   const isMigrationNeeded =
@@ -362,7 +224,7 @@ export function VendorAudit() {
   // ── scan ──────────────────────────────────────────────────────────────────
 
   const scanMutation = useMutation({
-    mutationFn: runScan,
+    mutationFn: runVendorScan,
     onSuccess: (stats) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
@@ -376,33 +238,24 @@ export function VendorAudit() {
   // ── confirm potential match ───────────────────────────────────────────────
 
   const confirmMutation = useMutation({
-    mutationFn: async ({ rawName, vendorId, groupId }: { rawName: string; vendorId: string; groupId: string }) => {
-      const { error } = await supabase.rpc("confirm_vendor_match", {
-        p_raw_name: rawName,
-        p_vendor_id: vendorId,
-        p_group_id: groupId,
-      });
-      if (error) throw error;
-    },
+    mutationFn: ({ rawName, vendorId, groupId }: { rawName: string; vendorId: string; groupId: string }) =>
+      confirmVendorMatch({ rawName, vendorId, groupId }),
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
+      setPotentialPage(0); setNewPage(0);
       toast.success(t("audit.confirmSuccess", { rawName }));
     },
     onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
   });
 
   const treatAsNewMutation = useMutation({
-    mutationFn: async ({ ids }: { ids: string[]; rawName: string }) => {
-      const { error } = await supabase
-        .from("transactions")
-        .update({ vendor_mapping_status: "new_vendor_candidate" })
-        .in("id", ids);
-      if (error) throw error;
-    },
+    mutationFn: ({ ids }: { ids: string[]; rawName: string }) =>
+      updateTransactionsVendorStatus({ ids, status: "new_vendor_candidate" }),
     onSuccess: (_, { rawName }) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
+      setPotentialPage(0); setNewPage(0);
       toast.info(t("audit.movedToNew", { rawName }));
     },
     onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
@@ -411,33 +264,21 @@ export function VendorAudit() {
   // ── approve / map new vendor ─────────────────────────────────────────────
 
   const approveMutation = useMutation({
-    mutationFn: async ({ rawName, canonicalName, groupId, existingVendorId }: {
+    mutationFn: ({ rawName, canonicalName, groupId, existingVendorId }: {
       rawName: string;
       canonicalName: string;
       groupId: string;
       existingVendorId: string | null;
-    }) => {
-      if (existingVendorId) {
-        const { error } = await supabase.rpc("confirm_vendor_match", {
-          p_raw_name: rawName,
-          p_vendor_id: existingVendorId,
-          p_group_id: groupId,
-        });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.rpc("approve_vendor_mapping", {
-          p_raw_name: rawName,
-          p_canonical_name: canonicalName.trim(),
-          p_group_id: groupId,
-        });
-        if (error) throw error;
-      }
-    },
+    }) =>
+      existingVendorId
+        ? confirmVendorMatch({ rawName, vendorId: existingVendorId, groupId })
+        : approveVendorMapping({ rawName, canonicalName, groupId }),
     onSuccess: (_, { canonicalName, existingVendorId }) => {
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
+      setPotentialPage(0); setNewPage(0);
       toast.success(existingVendorId ? t("audit.mappedToVendor", { name: canonicalName }) : t("audit.addedToVendorCatalog", { name: canonicalName }));
     },
     onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
@@ -446,13 +287,8 @@ export function VendorAudit() {
   // ── vendor catalog: rename ─────────────────────────────────────────────────
 
   const renameMutation = useMutation({
-    mutationFn: async ({ vendorId, name }: { vendorId: string; name: string }) => {
-      const { error } = await supabase.rpc("rename_vendor", {
-        p_vendor_id: vendorId,
-        p_canonical_name: name.trim(),
-      });
-      if (error) throw error;
-    },
+    mutationFn: ({ vendorId, name }: { vendorId: string; name: string }) =>
+      renameVendor(vendorId, name),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       setEditingVendorId(null);
@@ -464,15 +300,13 @@ export function VendorAudit() {
   // ── vendor catalog: delete ────────────────────────────────────────────────
 
   const deleteMutation = useMutation({
-    mutationFn: async (vendorId: string) => {
-      const { error } = await supabase.rpc("delete_vendor", { p_vendor_id: vendorId });
-      if (error) throw error;
-    },
+    mutationFn: (vendorId: string) => deleteVendor(vendorId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["all-vendors"] });
       qc.invalidateQueries({ queryKey: ["vendor-audit-txs"] });
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
       qc.invalidateQueries({ queryKey: ["pending-vendor-count"] });
+      setPotentialPage(0); setNewPage(0);
       toast.success(t("audit.vendorDeleted"));
     },
     onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
@@ -481,10 +315,7 @@ export function VendorAudit() {
   // ── delete raw mapping ────────────────────────────────────────────────────
 
   const deleteMappingMutation = useMutation({
-    mutationFn: async (mappingId: string) => {
-      const { error } = await supabase.rpc("delete_vendor_raw_mapping", { p_mapping_id: mappingId });
-      if (error) throw error;
-    },
+    mutationFn: (mappingId: string) => deleteVendorMapping(mappingId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendor-raw-mappings"] });
       toast.success(t("audit.vendorMappingRemoved"));
@@ -492,9 +323,17 @@ export function VendorAudit() {
     onError: (err: Error) => toast.error(t("audit.actionFailed", { message: err.message })),
   });
 
-  // ── search ────────────────────────────────────────────────────────────────
+  // ── search + pagination ───────────────────────────────────────────────────
 
+  const [activeTab, setActiveTab] = useState<"candidates" | "catalog" | "mapped">("candidates");
   const [auditSearch, setAuditSearch] = useState("");
+  const [potentialPage, setPotentialPage] = useState(0);
+  const [newPage, setNewPage] = useState(0);
+
+  useEffect(() => {
+    setPotentialPage(0);
+    setNewPage(0);
+  }, [auditSearch]);
 
   // ── cluster state ─────────────────────────────────────────────────────────
 
@@ -517,14 +356,15 @@ export function VendorAudit() {
 
   const openReceipt = useCallback(async (imagePath: string) => {
     setLightboxLoading(true);
-    const { data, error } = await supabase.storage.from("receipts").createSignedUrl(imagePath, 120);
-    setLightboxLoading(false);
-    if (error || !data?.signedUrl) {
+    try {
+      const url = await getReceiptSignedUrl(imagePath);
+      setLightboxUrl(url);
+    } catch {
       toast.error(t("audit.receiptLoadError"));
-      return;
+    } finally {
+      setLightboxLoading(false);
     }
-    setLightboxUrl(data.signedUrl);
-  }, []);
+  }, [t]);
 
   const getEdit = useCallback(
     (key: string, defaultName: string) => clusterEdits[key] ?? defaultName,
@@ -587,6 +427,27 @@ export function VendorAudit() {
       : newCandidateClusters,
   [newCandidateClusters, auditSearch]);
 
+  const visibleVendors = useMemo(() => {
+    const vendors = vendorsQuery.data ?? [];
+    if (!auditSearch.trim()) return vendors;
+    return vendors.filter((v) => v.canonical_name.toLowerCase().includes(auditSearch.toLowerCase()));
+  }, [vendorsQuery.data, auditSearch]);
+
+  const visibleMappings = useMemo(() => {
+    const mappings = rawMappingsQuery.data ?? [];
+    if (!auditSearch.trim()) return mappings;
+    const q = auditSearch.toLowerCase();
+    return mappings.filter((m) =>
+      m.raw_name.toLowerCase().includes(q) ||
+      (vendorsById.get(m.vendor_id)?.canonical_name ?? "").toLowerCase().includes(q)
+    );
+  }, [rawMappingsQuery.data, auditSearch, vendorsById]);
+
+  const pagedPotential = visiblePotential.slice(potentialPage * CLUSTERS_PER_PAGE, (potentialPage + 1) * CLUSTERS_PER_PAGE);
+  const totalPotentialPages = Math.ceil(visiblePotential.length / CLUSTERS_PER_PAGE);
+  const pagedNew = visibleNew.slice(newPage * CLUSTERS_PER_PAGE, (newPage + 1) * CLUSTERS_PER_PAGE);
+  const totalNewPages = Math.ceil(visibleNew.length / CLUSTERS_PER_PAGE);
+
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
@@ -637,32 +498,31 @@ export function VendorAudit() {
         </div>
       )}
 
-      {/* ── Two-panel grid ──────────────────────────────────────────────── */}
+      {/* ── Audit content ──────────────────────────────────────────────── */}
       {!isLoading && !isMigrationNeeded && (
-        <div className="audit-layout" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 28, alignItems: "start" }}>
+        <div>
 
-          {/* ── LEFT: audit queue ──────────────────────────────────────── */}
-          <div>
-
-            {/* Search */}
-            {totalPending > 0 && (
-              <div style={{ position: "relative", marginBottom: 20 }}>
-                <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
-                <input
-                  value={auditSearch}
-                  onChange={(e) => setAuditSearch(e.target.value)}
-                  placeholder={t("audit.filterRaw")}
-                  style={{ ...inputStyle, paddingLeft: 32 }}
-                />
-              </div>
-            )}
+          {/* Search */}
+            <div style={{ position: "relative", marginBottom: 20 }}>
+              <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+              <input
+                value={auditSearch}
+                onChange={(e) => setAuditSearch(e.target.value)}
+                placeholder={
+                  activeTab === "catalog" ? t("audit.filterCatalog") :
+                  activeTab === "mapped" ? t("audit.filterMapped") :
+                  t("audit.filterRaw")
+                }
+                style={{ ...inputStyle, paddingLeft: 32 }}
+              />
+            </div>
 
       {/* ── Potential Matches ─────────────────────────────────────────── */}
       {visiblePotential.length > 0 && (
         <section style={{ marginBottom: 36 }}>
           <SectionHeader icon={<ArrowRightLeft size={16} />} title={t("audit.potentialMatchesSection")} subtitle={t("audit.vendorPotentialDesc")} color="var(--color-accent)" />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {visiblePotential.map((cluster) => {
+            {pagedPotential.map((cluster) => {
               const suggestedVendor = cluster.suggestedVendorId ? vendorsById.get(cluster.suggestedVendorId) : null;
               const isPending = confirmMutation.isPending || treatAsNewMutation.isPending;
               const isExpanded = expandedClusters.has(cluster.key);
@@ -773,15 +633,59 @@ export function VendorAudit() {
               );
             })}
           </div>
+          {totalPotentialPages > 1 && (
+            <div className="tx-pagination">
+              <button type="button" style={ghostBtn} disabled={potentialPage === 0} onClick={() => setPotentialPage((p) => p - 1)}>
+                {t("common.prevPage")}
+              </button>
+              <span className="tx-pagination__info">
+                {t("common.pageInfo", { current: potentialPage + 1, total: totalPotentialPages })}
+              </span>
+              <button type="button" style={ghostBtn} disabled={potentialPage >= totalPotentialPages - 1} onClick={() => setPotentialPage((p) => p + 1)}>
+                {t("common.nextPage")}
+              </button>
+            </div>
+          )}
         </section>
       )}
 
+            {/* Tab buttons */}
+            <div style={{ display: "flex", gap: 8, margin: "4px 0 20px", flexWrap: "wrap" }}>
+              {(["candidates", "catalog", "mapped"] as const).map((tab) => {
+                const isActive = activeTab === tab;
+                const labels = {
+                  candidates: t("audit.tabCandidates"),
+                  catalog: t("audit.tabCatalog"),
+                  mapped: t("audit.tabMapped"),
+                };
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => { setActiveTab(tab); setAuditSearch(""); }}
+                    style={{
+                      padding: "7px 18px",
+                      borderRadius: 20,
+                      border: `1px solid ${isActive ? "transparent" : "var(--border-color)"}`,
+                      background: isActive ? "var(--color-accent)" : "var(--bg-card)",
+                      color: isActive ? "#fff" : "var(--text-secondary)",
+                      cursor: "pointer",
+                      fontSize: "0.875rem",
+                      fontWeight: isActive ? 600 : 400,
+                      transition: "background 0.15s, color 0.15s",
+                    }}
+                  >
+                    {labels[tab]}
+                  </button>
+                );
+              })}
+            </div>
+
       {/* ── New Vendor Candidates ─────────────────────────────────────── */}
-      {visibleNew.length > 0 && (
+      {activeTab === "candidates" && visibleNew.length > 0 && (
         <section style={{ marginBottom: 36 }}>
           <SectionHeader icon={<Plus size={16} />} title={t("audit.newVendorSection")} subtitle={t("audit.newVendorDesc")} color="#f59e0b" />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {visibleNew.map((cluster) => {
+            {pagedNew.map((cluster) => {
               const editedName = getEdit(cluster.key, cluster.rawName);
               const selectedVendor = clusterSelectedVendor[cluster.key] ?? null;
               const isPending = approveMutation.isPending;
@@ -838,16 +742,29 @@ export function VendorAudit() {
               );
             })}
           </div>
+          {totalNewPages > 1 && (
+            <div className="tx-pagination">
+              <button type="button" style={ghostBtn} disabled={newPage === 0} onClick={() => setNewPage((p) => p - 1)}>
+                {t("common.prevPage")}
+              </button>
+              <span className="tx-pagination__info">
+                {t("common.pageInfo", { current: newPage + 1, total: totalNewPages })}
+              </span>
+              <button type="button" style={ghostBtn} disabled={newPage >= totalNewPages - 1} onClick={() => setNewPage((p) => p + 1)}>
+                {t("common.nextPage")}
+              </button>
+            </div>
+          )}
         </section>
       )}
 
-      {auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
+      {activeTab === "candidates" && auditSearch.trim() && visiblePotential.length === 0 && visibleNew.length === 0 && totalPending > 0 && (
         <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
           {t("audit.noSearchResults", { query: auditSearch })}
         </div>
       )}
 
-      {totalPending === 0 && !scanMutation.isPending && (
+      {activeTab === "candidates" && totalPending === 0 && !scanMutation.isPending && (
         <div style={{ textAlign: "center", padding: "56px 24px", background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border-color)" }}>
           <CheckCircle2 size={40} color="var(--color-success)" style={{ margin: "0 auto 14px" }} />
           <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>{t("audit.allVendorsMapped")}</p>
@@ -855,17 +772,12 @@ export function VendorAudit() {
         </div>
       )}
 
-          </div>{/* end LEFT */}
-
-          {/* ── RIGHT: catalog + mappings (sticky) ─────────────────────── */}
-          <div style={{ position: "sticky", top: 24, maxHeight: "calc(100vh - 48px)", overflowY: "auto" }}>
-
       {/* ── Vendor Catalog ────────────────────────────────────────────── */}
-      {(vendorsQuery.data ?? []).length > 0 && (
+      {activeTab === "catalog" && visibleVendors.length > 0 && (
         <section style={{ marginBottom: 24 }}>
-          <SectionHeader icon={<Store size={16} />} title={t("audit.vendorCatalogSection")} subtitle={t("audit.vendorCatalogCount", { count: (vendorsQuery.data ?? []).length })} color="var(--text-muted)" />
+          <SectionHeader icon={<Store size={16} />} title={t("audit.vendorCatalogSection")} subtitle={t("audit.vendorCatalogCount", { count: visibleVendors.length })} color="var(--text-muted)" />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {(vendorsQuery.data ?? []).map((vendor) => {
+            {visibleVendors.map((vendor) => {
               const isEditing = editingVendorId === vendor.id;
               const isAdmin = isAdminOf(vendor.group_id);
               return (
@@ -932,7 +844,7 @@ export function VendorAudit() {
       )}
 
       {/* ── Confirmed Mappings ───────────────────────────────────────── */}
-      {(rawMappingsQuery.data ?? []).length > 0 && (
+      {activeTab === "mapped" && visibleMappings.length > 0 && (
         <section>
           <SectionHeader
             icon={<CheckCircle2 size={16} />}
@@ -941,7 +853,7 @@ export function VendorAudit() {
             color="var(--color-success)"
           />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {(rawMappingsQuery.data ?? []).map((mapping) => {
+            {visibleMappings.map((mapping) => {
               const vendor = vendorsById.get(mapping.vendor_id);
               const isAdmin = isAdminOf(mapping.group_id);
               return (
@@ -974,7 +886,18 @@ export function VendorAudit() {
         </section>
       )}
 
-          </div>{/* end RIGHT */}
+      {activeTab === "catalog" && (vendorsQuery.data ?? []).length > 0 && visibleVendors.length === 0 && (
+        <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          {t("audit.noSearchResults", { query: auditSearch })}
+        </div>
+      )}
+
+      {activeTab === "mapped" && (rawMappingsQuery.data ?? []).length > 0 && visibleMappings.length === 0 && (
+        <div style={{ textAlign: "center", padding: "32px 24px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          {t("audit.noSearchResults", { query: auditSearch })}
+        </div>
+      )}
+
         </div>
       )}{/* end !isLoading && !isMigrationNeeded */}
 
@@ -1014,10 +937,7 @@ export function VendorAudit() {
         </div>
       )}
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @media (max-width: 900px) { .audit-layout { grid-template-columns: 1fr !important; } }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -1082,3 +1002,5 @@ const primaryBtn: React.CSSProperties = { display: "flex", alignItems: "center",
 const ghostBtn: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-color)", borderRadius: 7, padding: "7px 12px", fontWeight: 500, fontSize: "0.82rem", cursor: "pointer", whiteSpace: "nowrap" };
 const labelStyle: React.CSSProperties = { display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 5, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.04em" };
 const inputStyle: React.CSSProperties = { width: "100%", background: "var(--bg-secondary)", border: "1px solid var(--border-color)", borderRadius: 7, padding: "8px 11px", color: "var(--text-primary)", fontSize: "0.88rem", boxSizing: "border-box" };
+
+export default VendorAudit;

@@ -3,27 +3,7 @@ import { Mail, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
-
-interface Invitation {
-  id: string;
-  group_id: string;
-  invited_email: string;
-  status: string;
-  created_at: string;
-  groups: { name: string };
-}
-
-async function fetchInvitations(email: string): Promise<Invitation[]> {
-  const { data, error } = await supabase
-    .from("invitations")
-    .select("*, groups(name)")
-    .eq("status", "pending")
-    .eq("invited_email", email)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data ?? [];
-}
+import { getInvitations, respondToInvitation, type Invitation } from "../api/invitations";
 
 export function Invitations() {
   const { user } = useAuth();
@@ -32,24 +12,18 @@ export function Invitations() {
 
   const { data: invitations = [], isLoading } = useQuery({
     queryKey: ["invitations", user?.id],
-    queryFn: () => fetchInvitations(user!.email!),
+    queryFn: () => getInvitations(user!.email!),
     enabled: Boolean(user?.email),
   });
 
   const respondMutation = useMutation({
-    mutationFn: async ({ invitation, accept }: { invitation: Invitation; accept: boolean }) => {
-      if (accept) {
-        const { error: memberError } = await supabase
-          .from("group_members")
-          .upsert({ group_id: invitation.group_id, user_id: user!.id, role: "member" }, { onConflict: "group_id,user_id" });
-        if (memberError) throw memberError;
-      }
-      const { error } = await supabase
-        .from("invitations")
-        .update({ status: accept ? "accepted" : "declined", updated_at: new Date().toISOString() })
-        .eq("id", invitation.id);
-      if (error) throw error;
-    },
+    mutationFn: ({ invitation, accept }: { invitation: Invitation; accept: boolean }) =>
+      respondToInvitation({
+        invitationId: invitation.id,
+        groupId: invitation.group_id,
+        userId: user!.id,
+        accept,
+      }),
     onSuccess: (_, { accept, invitation }) => {
       toast.success(accept ? t("invitations.joinedGroup", { name: invitation.groups.name }) : t("invitations.declinedMsg"));
       queryClient.invalidateQueries({ queryKey: ["invitations"] });
@@ -138,3 +112,5 @@ export function Invitations() {
     </div>
   );
 }
+
+export default Invitations;
