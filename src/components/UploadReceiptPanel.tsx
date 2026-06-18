@@ -2,9 +2,15 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, CircleCheckBig, ScanLine, Upload } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
-import type { Group } from "../types";
+import { getAllGroups } from "../api/groups";
+import {
+  uploadReceiptFile,
+  createReceiptRecord,
+  invokeProcessReceipts,
+  markReceiptError,
+} from "../api/receipts";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -45,7 +51,6 @@ export function UploadReceiptPanel() {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [groups, setGroups] = useState<Group[]>([]);
   const [groupId, setGroupId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -53,18 +58,15 @@ export function UploadReceiptPanel() {
   const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
+  const { data: allGroups = [] } = useQuery({
+    queryKey: ["all-groups"],
+    queryFn: getAllGroups,
+    enabled: Boolean(user),
+  });
+
   useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("group_members")
-      .select("group_id(id,name)")
-      .then(({ data, error }) => {
-        if (error) { setStatus(error.message); setIsError(true); return; }
-        const loaded = (data ?? []).map((item: any) => item.group_id as Group);
-        setGroups(loaded);
-        if (loaded.length > 0) setGroupId(loaded[0].id);
-      });
-  }, [user]);
+    if (allGroups.length > 0 && !groupId) setGroupId(allGroups[0].id);
+  }, [allGroups]);
 
   const validateFile = (f: File | null): string | null => {
     if (!f) return t("upload.pleaseSelectFile");
@@ -137,22 +139,20 @@ export function UploadReceiptPanel() {
     setIsError(false);
     const storagePath = `${user.id}/${Date.now()}_${file.name}`;
 
-    const { error: uploadError } = await supabase.storage.from("receipts").upload(storagePath, file);
-    if (uploadError) {
-      setStatus(`Upload failed: ${uploadError.message}`);
+    try {
+      await uploadReceiptFile(storagePath, file);
+    } catch (err) {
+      setStatus(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
       setIsError(true);
       setLoading(false);
       return;
     }
 
-    const { data: receiptRow, error: insertError } = await supabase
-      .from("receipts")
-      .insert({ user_id: user.id, group_id: groupId, image_url: storagePath, status: "pending" })
-      .select("id")
-      .single();
-
-    if (insertError || !receiptRow) {
-      setStatus(insertError?.message ?? "Failed to create receipt record.");
+    let receiptId: string;
+    try {
+      receiptId = await createReceiptRecord({ userId: user.id, groupId, storagePath });
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to create receipt record.");
       setIsError(true);
       setLoading(false);
       return;
@@ -166,19 +166,17 @@ export function UploadReceiptPanel() {
     });
 
     setStatus(t("uploadPanel.sendingToAi"));
-    const { error: fnError } = await supabase.functions.invoke("process-receipts", {
-      body: { receipt_id: receiptRow.id, image_data: imageBase64, mime_type: file.type || "image/jpeg" },
-    });
-
-    setLoading(false);
-
-    if (fnError) {
-      await supabase.from("receipts").update({ status: "error" }).eq("id", receiptRow.id);
-      setStatus(`AI processing failed: ${fnError.message}`);
+    try {
+      await invokeProcessReceipts({ receiptId, imageBase64, mimeType: file.type || "image/jpeg" });
+    } catch (fnErr) {
+      await markReceiptError(receiptId);
+      setStatus(`AI processing failed: ${fnErr instanceof Error ? fnErr.message : String(fnErr)}`);
       setIsError(true);
+      setLoading(false);
       return;
     }
 
+    setLoading(false);
     setFile(null);
     navigate("/review");
   }
@@ -196,7 +194,7 @@ export function UploadReceiptPanel() {
         <h2>{t("uploadPanel.title")}</h2>
       </div>
 
-      {groups.length === 0 ? (
+      {allGroups.length === 0 ? (
         <div className="alert">{t("uploadPanel.noGroupAlert")}</div>
       ) : (
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
@@ -238,7 +236,7 @@ export function UploadReceiptPanel() {
           <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: "0.83rem", color: "var(--text-secondary)", fontWeight: 500 }}>
             {t("uploadPanel.group")}
             <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-              {groups.map((g) => (
+              {allGroups.map((g) => (
                 <option key={g.id} value={g.id}>{g.name}</option>
               ))}
             </select>

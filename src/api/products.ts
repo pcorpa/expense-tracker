@@ -127,6 +127,21 @@ async function updateTransactionItemsMappingStatus(params: {
   if (error) throw error;
 }
 
+export async function getProductSuggestions(params: {
+  search: string;
+  groupId: string;
+}): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('products')
+    .select('name')
+    .eq('group_id', params.groupId)
+    .ilike('name', `%${params.search}%`)
+    .limit(5);
+  if (error || !data) return [];
+  const uniqueNames = Array.from(new Set(data.map((item: any) => item.name as string)));
+  return uniqueNames;
+}
+
 export async function runProductScan(): Promise<ScanStats> {
   const { data: rawItemsRaw, error: itemsErr } = await supabase
     .from('transaction_items')

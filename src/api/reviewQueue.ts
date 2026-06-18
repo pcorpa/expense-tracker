@@ -45,6 +45,36 @@ export async function getReviewTransactions(
   return { data: (data ?? []) as ReviewTransaction[], count: count ?? 0 };
 }
 
+export async function retryReceipt(receiptId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke('process-receipts', {
+    body: { receipt_id: receiptId },
+  });
+  if (error) throw error;
+}
+
+export async function approveTransaction(params: {
+  transactionId: string;
+  receiptId: string | null;
+  subtotal: number;
+}): Promise<{ transactionUpdated: boolean }> {
+  const [transactionResult, receiptResult] = await Promise.all([
+    supabase
+      .from('transactions')
+      .update({ total_amount: params.subtotal, is_reviewed: true })
+      .eq('id', params.transactionId)
+      .select('id'),
+    params.receiptId
+      ? supabase
+          .from('receipts')
+          .update({ status: 'completed' })
+          .eq('id', params.receiptId)
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (transactionResult.error) throw transactionResult.error;
+  if (receiptResult.error) throw receiptResult.error;
+  return { transactionUpdated: (transactionResult.data?.length ?? 0) > 0 };
+}
+
 export async function getFailedReceipts(): Promise<FailedReceipt[]> {
   const { data, error } = await supabase
     .from("receipts")

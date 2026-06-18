@@ -345,22 +345,30 @@ const ExpenseList = React.lazy(() => import('./pages/ExpenseList'));
 
 Wrap routes in a single `<Suspense fallback={<div>Loading...</div>}>`. This splits the bundle by route and eliminates the current single-chunk initial load.
 
-#### 9.5 API Service Layer
+#### 9.5 API Service Layer ✅ Complete
 
-Create `src/api/` with one file per domain. Each file exports typed async functions that wrap the Supabase calls currently scattered across page components:
+`src/api/` created with one file per domain. Each file exports typed async functions that wrap all Supabase calls:
 
-- `src/api/transactions.ts` — `getTransactions()`, `createTransaction()`, `updateTransaction()`, `deleteTransaction()`
-- `src/api/vendors.ts` — `getVendors()`, `getVendorMappings()`, `approveVendorMapping()`
-- `src/api/products.ts` — `getProducts()`, `approveProductMapping()`
-- `src/api/groups.ts` — `getGroups()`, `inviteMember()`
+- `src/api/transactions.ts` — `getTransactions()`, `submitTransaction()`, `getTransactionHeader()`, `updateTransactionHeader()`, `upsertTransactionItem()`, `deleteTransaction()`
+- `src/api/vendors.ts` — vendor audit and mapping RPCs
+- `src/api/products.ts` — `getProducts()`, `getProductSuggestions()`, product audit RPCs
+- `src/api/groups.ts` — `getGroups()`, `getAllGroups()`, `inviteMember()`
+- `src/api/reviewQueue.ts` — `getReviewTransactions()`, `getFailedReceipts()`, `retryReceipt()`, `approveTransaction()`
 
-Pages import from `src/api/` and use `useQuery`/`useMutation` (already in use for audit counts) — no direct Supabase calls in components. This is a refactor of existing code; no new features.
+Applied first to: `ExpenseList.tsx`, `VendorAudit.tsx`, `ProductAudit.tsx`, `GroupManager.tsx`, and nav badge hooks.
 
-#### 9.6 Consolidate Data Fetching to React Query
+#### 9.6 Complete API Layer & React Query Migration ✅ Complete
 
-Replace the ~35 `useEffect + useState` data fetching patterns with `useQuery`. The React Query client is already set up in `App.tsx`. Migration is page-by-page; start with `ExpenseList.tsx` and `ReviewQueue.tsx` as the highest-traffic pages.
+Extended the API layer to cover every remaining page, and replaced all `useEffect + useState` data-fetching patterns with `useQuery`/`useMutation`.
 
-Benefits: automatic caching, deduplication of identical queries, consistent loading/error states, and background refetch.
+New API files added:
+- `src/api/profiles.ts`, `src/api/invitations.ts`, `src/api/receipts.ts`, `src/api/analytics.ts`, `src/api/shoppingList.ts`, `src/api/recurringExpenses.ts`
+
+Pages/components migrated: `Profile`, `Invitations`, `ProcessedImages`, `ReviewQueue`, `ReviewTransactionEdit`, `ReviewItemEdit`, `TransactionEntry`, `ShoppingList`, `Analytics`, `RecurringExpenses`, `AddRecurringExpense`, `EditRecurringExpense`, `UploadReceiptPanel`, `usePendingInvitationsCount`.
+
+**Invariant enforced:** No component or hook imports `supabase` directly — all data access goes through `src/api/`. Exceptions: `src/lib/auth.tsx`, `src/pages/SignIn.tsx`, `src/pages/SignUp.tsx` (auth calls), and `src/lib/recurringExpenses.ts` (utility that takes supabase as a parameter, called from the API layer).
+
+Benefits achieved: automatic caching, query deduplication, consistent loading/error states, background refetch, shared `['all-groups']` cache across pages.
 
 #### 9.7 Bundle Analysis
 

@@ -84,13 +84,26 @@ src/
     PublicOnlyRoute.tsx
     UploadReceiptPanel.tsx     reusable receipt upload panel component
 
+  api/
+    groups.ts           getAllGroups, getGroups, inviteMember
+    transactions.ts     getTransactions, submitTransaction, getTransactionHeader, updateTransactionHeader, upsertTransactionItem, deleteTransaction
+    products.ts         getProducts, getProductSuggestions, product audit RPCs
+    vendors.ts          getVendors, vendor audit + mapping RPCs
+    receipts.ts         getReceipts, uploadReceiptFile, createReceiptRecord, invokeProcessReceipts, markReceiptError, deleteReceipt
+    reviewQueue.ts      getReviewTransactions, getFailedReceipts, retryReceipt, approveTransaction
+    profiles.ts         getProfile, upsertProfile
+    invitations.ts      getInvitations, respondToInvitation, getPendingInvitationsCount
+    analytics.ts        getAnalyticsData
+    shoppingList.ts     getShoppingListData
+    recurringExpenses.ts  getRecurringExpenses, createRecurringExpense, updateRecurringExpense, cancelRecurringExpense, deleteRecurringExpense, generateDueForAll
+
   lib/
     supabase.ts                Supabase client
     auth.tsx                   auth state context
     theme.tsx                  ThemeProvider + useTheme hook; dark/light toggle persisted to localStorage
     fuzzyMatch.ts              Fuse.js fuzzy matching + normalization pipeline (product items)
     fuzzyMatchVendor.ts        vendor matching — Fuse.js + 5-char token overlap fallback
-    recurringExpenses.ts       client-side generation logic for recurring expense templates
+    recurringExpenses.ts       client-side generation logic for recurring expense templates (utility; takes supabase as param)
     usePendingAuditCount.ts    TanStack Query hook — pending product audit count
     usePendingVendorCount.ts   TanStack Query hook — pending vendor audit count
     usePendingInvitationsCount.ts  TanStack Query hook — pending invitations count
@@ -253,3 +266,7 @@ These rules are enforced throughout and must not be relaxed:
 | Phase 6 — Vendor normalization (fuzzy matching, VendorAudit, persistent mappings, admin controls) | Complete |
 | Phase 7 — Recurring expenses (subscriptions, installments, periodic bills; auto-generation; cancel/delete) | Complete |
 | Phase 8 — Shopping list, product admin controls, dark/light theme, ES/EN bilingual support | Complete |
+| Phase 9.1 — Database indexes for transactions and group_members | Complete |
+| Phase 9.3 — Server-side pagination for ReviewQueue, VendorAudit, ProductAudit | Complete |
+| Phase 9.5 — API service layer (`src/api/`) for core data domains | Complete |
+| Phase 9.6 — Complete API layer: all remaining pages migrated to `src/api/` + React Query | Complete |

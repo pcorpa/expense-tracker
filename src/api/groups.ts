@@ -38,6 +38,19 @@ export async function createGroup(params: { name: string; userId: string }): Pro
   return { id: groupId, name: params.name, is_personal: false, created_at: new Date().toISOString() };
 }
 
+export async function getAllGroups(): Promise<Group[]> {
+  const { data, error } = await supabase
+    .from('group_members')
+    .select('groups(id, name, is_personal, created_at)');
+  if (error) throw error;
+  const groups = (data ?? [])
+    .map((m: any) => m.groups as Group)
+    .filter(Boolean);
+  return [...groups].sort((a, b) =>
+    a.is_personal === b.is_personal ? 0 : a.is_personal ? -1 : 1,
+  );
+}
+
 export async function inviteMember(params: {
   groupId: string;
   email: string;

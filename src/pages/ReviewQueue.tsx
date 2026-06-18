@@ -3,9 +3,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
-import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import { getReviewTransactions, getFailedReceipts } from "../api/reviewQueue";
+import { getReviewTransactions, getFailedReceipts, retryReceipt, approveTransaction } from "../api/reviewQueue";
+import { deleteReceipt } from "../api/receipts";
 import type { ReviewTransaction } from "../api/reviewQueue";
 
 const PAGE_SIZE = 20;
@@ -45,29 +45,27 @@ export function ReviewQueue() {
 
   const handleRetry = async (receiptId: string) => {
     setRetrying(receiptId);
-    const { error } = await supabase.functions.invoke("process-receipts", {
-      body: { receipt_id: receiptId },
-    });
-    setRetrying(null);
-    if (error) {
-      window.alert(`Retry failed: ${error.message}`);
-      return;
+    try {
+      await retryReceipt(receiptId);
+      failedQuery.refetch();
+      setPage(0);
+      qc.invalidateQueries({ queryKey: ["review-transactions"] });
+    } catch (err) {
+      window.alert(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    failedQuery.refetch();
-    setPage(0);
-    qc.invalidateQueries({ queryKey: ["review-transactions"] });
+    setRetrying(null);
   };
 
   const handleDelete = async (receiptId: string) => {
     setDeleting(receiptId);
     setConfirmDelete(null);
-    const { error } = await supabase.from("receipts").delete().eq("id", receiptId);
-    setDeleting(null);
-    if (error) {
-      window.alert(`Delete failed: ${error.message}`);
-      return;
+    try {
+      await deleteReceipt(receiptId);
+      failedQuery.refetch();
+    } catch (err) {
+      window.alert(`Delete failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    failedQuery.refetch();
+    setDeleting(null);
   };
 
   const handleApprove = async (transaction: ReviewTransaction) => {
@@ -95,34 +93,25 @@ export function ReviewQueue() {
     setApproving(transaction.id);
     const subtotal = items.reduce((sum, item) => sum + item.item_total, 0);
 
-    const [transactionResult, receiptResult] = await Promise.all([
-      supabase
-        .from("transactions")
-        .update({ total_amount: subtotal, is_reviewed: true })
-        .eq("id", transaction.id)
-        .select("id"),
-      transaction.receipt_id
-        ? supabase
-            .from("receipts")
-            .update({ status: "completed" })
-            .eq("id", transaction.receipt_id)
-        : Promise.resolve({ data: null, error: null }),
-    ]);
+    try {
+      const result = await approveTransaction({
+        transactionId: transaction.id,
+        receiptId: transaction.receipt_id,
+        subtotal,
+      });
 
-    setApproving(null);
+      if (!result.transactionUpdated) {
+        window.alert(t("review.approvePermissionError"));
+        return;
+      }
 
-    if (transactionResult.error || receiptResult.error) {
+      setPage(0);
+      qc.invalidateQueries({ queryKey: ["review-transactions"] });
+    } catch {
       window.alert(t("review.approveFailed"));
-      return;
+    } finally {
+      setApproving(null);
     }
-
-    if (!transactionResult.data || transactionResult.data.length === 0) {
-      window.alert(t("review.approvePermissionError"));
-      return;
-    }
-
-    setPage(0);
-    qc.invalidateQueries({ queryKey: ["review-transactions"] });
   };
 
   if (query.isLoading) {

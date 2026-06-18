@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from "react";
 import { Search, ShoppingCart, Check, ChevronDown, ChevronUp, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { supabase } from "../lib/supabase";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import type { Transaction, Product } from "../types";
+import { getAllGroups } from "../api/groups";
+import { getShoppingListData } from "../api/shoppingList";
 
 const SHOPPING_CATEGORIES = ["Comida", "Limpieza", "Cuidado Personal"] as const;
 type ShoppingCategory = (typeof SHOPPING_CATEGORIES)[number];
@@ -121,50 +122,27 @@ export function ShoppingList() {
   const [threshold, setThreshold] = useState(2);
   const [search, setSearch] = useState("");
   const [showBought, setShowBought] = useState(false);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!user) return;
-    setLoading(true);
+  const { data: allGroups = [] } = useQuery({
+    queryKey: ["all-groups"],
+    queryFn: getAllGroups,
+    enabled: Boolean(user),
+  });
+  const groupIds = allGroups.map((g) => g.id);
 
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - historyMonths);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const cutoffDate = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - historyMonths);
+    return d.toISOString().slice(0, 10);
+  }, [historyMonths]);
 
-    supabase
-      .from("group_members")
-      .select("group_id")
-      .eq("user_id", user.id)
-      .then(({ data: memberships }) => {
-        if (!memberships || memberships.length === 0) {
-          setLoading(false);
-          setTransactions([]);
-          setProducts([]);
-          return;
-        }
-        const groupIds = memberships.map((m: any) => m.group_id);
-
-        Promise.all([
-          supabase
-            .from("transactions")
-            .select("*, transaction_items(*)")
-            .in("group_id", groupIds)
-            .eq("is_reviewed", true)
-            .eq("type", "expense")
-            .gte("date", cutoffStr),
-          supabase
-            .from("products")
-            .select("id, name, category, created_at")
-            .in("group_id", groupIds),
-        ]).then(([{ data: txData }, { data: prodData }]) => {
-          setLoading(false);
-          setTransactions(txData ?? []);
-          setProducts(prodData ?? []);
-        });
-      });
-  }, [user, historyMonths]);
+  const { data: shoppingData, isLoading: loading } = useQuery({
+    queryKey: ["shopping-list-data", groupIds, historyMonths],
+    queryFn: () => getShoppingListData({ groupIds, cutoffDate }),
+    enabled: groupIds.length > 0,
+  });
+  const transactions = shoppingData?.transactions ?? [];
+  const products = shoppingData?.products ?? [];
 
   const currentMonth = new Date().toISOString().slice(0, 7);
 

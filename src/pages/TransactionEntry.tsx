@@ -2,9 +2,11 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
-import type { Group } from "../types";
+import { getAllGroups } from "../api/groups";
+import { submitTransaction } from "../api/transactions";
+import { getProductSuggestions } from "../api/products";
 
 const FIXED_CATEGORIES: { dbId: string; i18nKey: string }[] = [
   { dbId: "comida",          i18nKey: "categories.comida" },
@@ -55,7 +57,6 @@ export function TransactionEntry() {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
-  const [groups, setGroups] = useState<Group[]>([]);
   const [groupId, setGroupId] = useState("");
   const [type, setType] = useState<"expense" | "income">("expense");
   const [vendor, setVendor] = useState("");
@@ -80,44 +81,23 @@ export function TransactionEntry() {
   const [message, setMessage] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
 
+  const { data: allGroups = [] } = useQuery({
+    queryKey: ["all-groups"],
+    queryFn: getAllGroups,
+    enabled: Boolean(user),
+  });
+
   useEffect(() => {
-    if (!user) return;
-    const fetchUserGroups = async () => {
-      const { data } = await supabase
-        .from("group_members")
-        .select(`groups (id, name, is_personal)`)
-        .eq("user_id", user.id);
-      const userGroups = (data ?? [])
-        .map((item: any) => item.groups)
-        .filter(Boolean) as Group[];
-      const sorted = [...userGroups].sort((a, b) =>
-        a.is_personal === b.is_personal ? 0 : a.is_personal ? -1 : 1
-      );
-      setGroups(sorted);
-      if (sorted.length > 0) setGroupId(sorted[0].id);
-    };
-    fetchUserGroups();
-  }, [user]);
+    if (allGroups.length > 0 && !groupId) setGroupId(allGroups[0].id);
+  }, [allGroups]);
 
   const fetchProductSuggestions = async (searchTerm: string) => {
     if (!searchTerm.trim() || !groupId) {
       setProductSuggestions([]);
       return;
     }
-
-    const { data, error } = await supabase
-      .from("products")
-      .select("name")
-      .eq("group_id", groupId)
-      .ilike("name", `%${searchTerm}%`)
-      .limit(5);
-
-    if (!error && data) {
-      const uniqueNames = Array.from(
-        new Set(data.map((item: any) => item.name)),
-      ) as string[];
-      setProductSuggestions(uniqueNames);
-    }
+    const names = await getProductSuggestions({ search: searchTerm, groupId });
+    setProductSuggestions(names);
   };
 
   const addItem = () =>
@@ -188,83 +168,28 @@ export function TransactionEntry() {
     setLoading(true);
     setMessage(null);
 
-    const { data: txData, error: txError } = await supabase
-      .from("transactions")
-      .insert({
-        user_id: user.id,
-        group_id: groupId,
-        type: type,
-        is_reviewed: false,
+    try {
+      await submitTransaction({
+        groupId,
+        userId: user.id,
+        type,
         vendor_or_source: vendor,
         date,
-        total_amount: calculatedTotal,
         currency,
-      })
-      .select()
-      .single();
-
-    if (txError) {
-      setMessage(txError.message);
-      setLoading(false);
-      return;
-    }
-
-    const itemsToInsert = await Promise.all(
-      items.map(async (item) => {
-        const category =
-          item.category === "otro" ? item.category_custom : item.category;
-
-        let productId = null;
-        try {
-          const { data: existingProduct } = await supabase
-            .from("products")
-            .select("id")
-            .eq("group_id", groupId)
-            .eq("name", item.product_name)
-            .single();
-
-          if (existingProduct) {
-            productId = existingProduct.id;
-          } else {
-            const { data: newProduct, error: productError } = await supabase
-              .from("products")
-              .insert({
-                group_id: groupId,
-                name: item.product_name,
-                category,
-              })
-              .select()
-              .single();
-
-            if (!productError && newProduct) {
-              productId = newProduct.id;
-            }
-          }
-        } catch {
-          // product_id will be null
-        }
-
-        return {
-          transaction_id: txData.id,
-          product_id: productId,
+        items: items.map((item) => ({
           name: item.product_name,
-          category,
+          category: item.category === "otro" ? item.category_custom : item.category,
           quantity: parseFloat(item.quantity),
           unit_price: parseFloat(item.unit_price),
           item_total: calculateItemTotal(item.quantity, item.unit_price),
-        };
-      }),
-    );
-
-    const { error: itemsError } = await supabase
-      .from("transaction_items")
-      .insert(itemsToInsert);
-
-    setLoading(false);
-    if (itemsError) setMessage(itemsError.message);
-    else {
+        })),
+      });
       setMessage(t("entry.savedSuccess"));
       setTimeout(() => navigate("/transactions"), 1000);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -303,7 +228,7 @@ export function TransactionEntry() {
               value={groupId}
               onChange={(e) => setGroupId(e.target.value)}
             >
-              {groups.map((g) => (
+              {allGroups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.is_personal ? t("entry.personalJustMe") : g.name}
                 </option>

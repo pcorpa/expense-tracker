@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { supabase } from "../lib/supabase";
+import { getTransactionHeader, getTransactionItem, upsertTransactionItem } from "../api/transactions";
 
 const CATEGORIES = [
   { value: "Comida", i18nKey: "categories.comida" },
@@ -53,35 +53,13 @@ export function ReviewItemEdit() {
 
   const transactionQuery = useQuery({
     queryKey: ["transaction-header", transactionId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("vendor_or_source, date")
-        .eq("id", transactionId!)
-        .single();
-      if (error) throw error;
-      return data as { vendor_or_source: string | null; date: string | null };
-    },
+    queryFn: () => getTransactionHeader(transactionId!),
     enabled: Boolean(transactionId),
   });
 
   const itemQuery = useQuery({
     queryKey: ["transaction-item", itemId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("transaction_items")
-        .select("*")
-        .eq("id", itemId!)
-        .single();
-      if (error) throw error;
-      return data as {
-        name: string;
-        category: string | null;
-        quantity: number;
-        unit_price: number;
-        item_total: number;
-      };
-    },
+    queryFn: () => getTransactionItem(itemId!),
     enabled: Boolean(itemId) && !isNew,
   });
 
@@ -115,28 +93,22 @@ export function ReviewItemEdit() {
     setSaving(true);
     setError(null);
 
-    const payload = {
-      id: isNew ? crypto.randomUUID() : itemId!,
-      transaction_id: transactionId!,
-      name: form.name,
-      category: form.category || "Otro",
-      quantity: Number(form.quantity) || 0,
-      unit_price: Number(form.unit_price) || 0,
-      item_total: Number(form.item_total) || 0,
-    };
-
-    const { error: saveError } = await supabase
-      .from("transaction_items")
-      .upsert(payload, { onConflict: "id" });
-
-    setSaving(false);
-
-    if (saveError) {
-      setError(saveError.message);
-      return;
+    try {
+      await upsertTransactionItem({
+        id: isNew ? crypto.randomUUID() : itemId!,
+        transaction_id: transactionId!,
+        name: form.name,
+        category: form.category || "Otro",
+        quantity: Number(form.quantity) || 0,
+        unit_price: Number(form.unit_price) || 0,
+        item_total: Number(form.item_total) || 0,
+      });
+      navigate(from);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
-
-    navigate(from);
   };
 
   const isLoading = !initialized && !itemQuery.isError && itemQuery.isLoading;
