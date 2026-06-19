@@ -32,3 +32,6 @@ supabase/.temp/
 
 # Claude Code local settings
 .claude/
+
+# npm lock file (project uses pnpm)
+package-lock.json

@@ -31,7 +31,7 @@ export function PublicLayout() {
               onClick={toggleLanguage}
               title="Toggle language"
             >
-              {i18n.language === "es" ? "EN" : "ES"}
+              {i18n.language === "es" ? "ES" : "EN"}
             </button>
             <button
               className="nav-control-btn"

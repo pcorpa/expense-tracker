@@ -603,8 +603,11 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  flex: 1;
+  min-height: 100%;
   padding: 20px;
+  width: 100%;
+  max-width: none;
 }
 
 .page__header {
@@ -2069,6 +2072,8 @@ textarea:focus {
 
 .public-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ─── Landing page ─── */
